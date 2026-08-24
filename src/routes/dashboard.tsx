@@ -1,19 +1,17 @@
-import { createFileRoute, useNavigate, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import {
-  PlusCircle,
-  List,
-  CreditCard,
-  Grid,
+  Users,
+  Wallet,
+  Plus,
+  Minus,
+  History,
   Package,
+  ShoppingCart,
   LogOut,
   MessageCircle,
   RefreshCw,
-  ShoppingBag,
-  Clock,
-  CheckCircle,
-  XCircle,
-  LoaderCircle,
+  ArrowLeft,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
@@ -21,123 +19,262 @@ export const Route = createFileRoute('/dashboard')({
   component: DashboardPage,
 })
 
-const WA_BASE =
-  'https://wa.me/573172329884?text=Hola%20Servidor%20Uverley%2C%20quiero%20hacer%20un%20pedido'
+type Client = {
+  id: string
+  email: string | null
+  balance: number
+  role: string
+}
+
+type Transaction = {
+  id: number
+  user_id: string
+  amount: number
+  type: string
+  description: string | null
+  admin_id: string | null
+  created_at: string
+}
 
 type Order = {
-  id: string | number
+  id: number
   user_id: string
-  product_id: number | null
-  product_name: string | null
-  price: number | null
-  status: string | null
-  created_at?: string
+  product_name: string
+  price: number
+  status: string
+  created_at: string
+}
+
+const WA_NUMBER = '573172329884'
+
+function formatPrice(value: number) {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0))
 }
 
 function DashboardPage() {
   const navigate = useNavigate()
 
-  const [checking, setChecking] = useState(true)
+  const [loading, setLoading] = useState(true)
   const [authorized, setAuthorized] = useState(false)
 
+  const [clients, setClients] = useState<Client[]>([])
+  const [transactions, setTransactions] = useState<Transaction[]>([])
   const [orders, setOrders] = useState<Order[]>([])
-  const [loadingOrders, setLoadingOrders] = useState(false)
-  const [updatingOrder, setUpdatingOrder] = useState<string | number | null>(
-    null,
-  )
+
+  const [selectedClient, setSelectedClient] =
+    useState<Client | null>(null)
+
+  const [amount, setAmount] = useState('')
+  const [description, setDescription] = useState('')
+
+  const [processing, setProcessing] = useState(false)
+
+  const [activeSection, setActiveSection] =
+    useState<'inicio' | 'clientes' | 'movimientos' | 'pedidos'>(
+      'inicio',
+    )
 
   useEffect(() => {
-    let mounted = true
+    checkAdmin()
+  }, [])
 
-    async function checkAccess() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+  async function checkAdmin() {
+    setLoading(true)
 
-      if (!user) {
-        navigate({ to: '/login' })
-        return
-      }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
-      if (error || profile?.role !== 'admin') {
-        await supabase.auth.signOut()
-        navigate({ to: '/' })
-        return
-      }
-
-      if (mounted) {
-        setAuthorized(true)
-        setChecking(false)
-
-        loadOrders()
-      }
+    if (!user) {
+      navigate({ to: '/login' })
+      return
     }
 
-    checkAccess()
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
 
-    return () => {
-      mounted = false
+    if (error || profile?.role !== 'admin') {
+      await supabase.auth.signOut()
+      navigate({ to: '/' })
+      return
     }
-  }, [navigate])
+
+    setAuthorized(true)
+    setLoading(false)
+
+    await loadData()
+  }
+
+  async function loadData() {
+    await Promise.all([
+      loadClients(),
+      loadTransactions(),
+      loadOrders(),
+    ])
+  }
+
+  async function loadClients() {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, email, balance, role')
+      .order('role', { ascending: true })
+
+    if (error) {
+      console.error('Error cargando clientes:', error)
+      return
+    }
+
+    setClients(data ?? [])
+  }
+
+  async function loadTransactions() {
+    const { data, error } = await supabase
+      .from('balance_transactions')
+      .select(
+        'id, user_id, amount, type, description, admin_id, created_at',
+      )
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (error) {
+      console.error(
+        'Error cargando movimientos:',
+        error,
+      )
+      return
+    }
+
+    setTransactions(data ?? [])
+  }
 
   async function loadOrders() {
-    setLoadingOrders(true)
-
     const { data, error } = await supabase
       .from('orders')
       .select(
-        'id, user_id, product_id, product_name, price, status, created_at',
+        'id, user_id, product_name, price, status, created_at',
       )
       .order('created_at', { ascending: false })
+      .limit(100)
 
     if (error) {
       console.error('Error cargando pedidos:', error)
-
-      alert(
-        'No se pudieron cargar los pedidos.\n\n' +
-          error.message +
-          '\n\nSi el error menciona RLS, debemos crear la política de administrador en Supabase.',
-      )
-
-      setOrders([])
-    } else {
-      setOrders(data ?? [])
+      return
     }
 
-    setLoadingOrders(false)
+    setOrders(data ?? [])
   }
 
-  async function updateOrderStatus(
-    orderId: string | number,
-    status: string,
+  async function changeBalance(
+    type: 'recarga' | 'descuento',
   ) {
-    setUpdatingOrder(orderId)
-
-    const { error } = await supabase
-      .from('orders')
-      .update({ status })
-      .eq('id', orderId)
-
-    if (error) {
-      console.error(error)
-      alert('No se pudo actualizar el pedido: ' + error.message)
-    } else {
-      setOrders((current) =>
-        current.map((order) =>
-          order.id === orderId
-            ? { ...order, status }
-            : order,
-        ),
-      )
+    if (!selectedClient) {
+      alert('Selecciona primero un cliente.')
+      return
     }
 
-    setUpdatingOrder(null)
+    const numericAmount = Number(
+      amount.replace(/[^\d]/g, ''),
+    )
+
+    if (!numericAmount || numericAmount <= 0) {
+      alert('Escribe un monto válido.')
+      return
+    }
+
+    if (numericAmount > 2000000) {
+      alert(
+        'El monto máximo permitido es $2.000.000 COP.',
+      )
+      return
+    }
+
+    if (
+      type === 'recarga' &&
+      numericAmount < 20000
+    ) {
+      alert(
+        'La recarga mínima es de $20.000 COP.',
+      )
+      return
+    }
+
+    if (
+      type === 'descuento' &&
+      numericAmount > Number(selectedClient.balance)
+    ) {
+      alert(
+        'El descuento no puede ser mayor al saldo disponible.',
+      )
+      return
+    }
+
+    const action =
+      type === 'recarga'
+        ? 'agregar'
+        : 'descontar'
+
+    const confirmation = window.confirm(
+      `¿Confirmas ${action} ${formatPrice(
+        numericAmount,
+      )} ${
+        type === 'recarga'
+          ? 'al saldo'
+          : 'del saldo'
+      } de ${selectedClient.email ?? 'este cliente'}?`,
+    )
+
+    if (!confirmation) return
+
+    setProcessing(true)
+
+    try {
+      const { data, error } =
+        await supabase.rpc(
+          'admin_change_balance',
+          {
+            target_user_id: selectedClient.id,
+            change_amount: numericAmount,
+            change_type: type,
+            change_description:
+              description.trim() ||
+              (type === 'recarga'
+                ? 'Recarga manual realizada por administrador'
+                : 'Descuento manual realizado por administrador'),
+          },
+        )
+
+      if (error) {
+        console.error(error)
+
+        alert(
+          'No se pudo modificar el saldo:\n' +
+            error.message,
+        )
+
+        return
+      }
+
+      alert(
+        `Saldo actualizado correctamente.\n\nNuevo saldo: ${formatPrice(
+          Number(data),
+        )}`,
+      )
+
+      setAmount('')
+      setDescription('')
+      setSelectedClient(null)
+
+      await loadData()
+    } finally {
+      setProcessing(false)
+    }
   }
 
   async function handleLogout() {
@@ -145,414 +282,528 @@ function DashboardPage() {
     navigate({ to: '/' })
   }
 
-  function scrollToOrders() {
-    document
-      .getElementById('ordenes')
-      ?.scrollIntoView({ behavior: 'smooth' })
+  function clientEmail(userId: string) {
+    const client = clients.find(
+      (item) => item.id === userId,
+    )
+
+    return client?.email ?? userId.slice(0, 12) + '...'
   }
 
-  function formatPrice(price: number | null) {
-    if (price === null || price === undefined) {
-      return '$ 0'
-    }
-
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      maximumFractionDigits: 0,
-    }).format(price)
-  }
-
-  function formatDate(date?: string) {
-    if (!date) return 'Sin fecha'
-
-    return new Date(date).toLocaleString('es-CO', {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    })
-  }
-
-  function getStatusColor(status: string | null) {
-    switch (status?.toLowerCase()) {
-      case 'completado':
-      case 'completada':
-        return 'bg-green-600/20 text-green-400 border-green-600/30'
-
-      case 'en proceso':
-      case 'procesando':
-        return 'bg-blue-600/20 text-blue-400 border-blue-600/30'
-
-      case 'cancelado':
-      case 'cancelada':
-        return 'bg-red-600/20 text-red-400 border-red-600/30'
-
-      default:
-        return 'bg-yellow-600/20 text-yellow-400 border-yellow-600/30'
-    }
-  }
-
-  function getStatusIcon(status: string | null) {
-    switch (status?.toLowerCase()) {
-      case 'completado':
-      case 'completada':
-        return <CheckCircle size={16} />
-
-      case 'cancelado':
-      case 'cancelada':
-        return <XCircle size={16} />
-
-      case 'en proceso':
-      case 'procesando':
-        return <LoaderCircle size={16} />
-
-      default:
-        return <Clock size={16} />
-    }
-  }
-
-  if (checking) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <div className="text-center">
-          <LoaderCircle
-            size={40}
-            className="animate-spin text-blue-500 mx-auto mb-4"
-          />
-          <p className="text-gray-400">
-            Verificando acceso...
-          </p>
-        </div>
+        <p className="text-gray-400">
+          Verificando acceso...
+        </p>
       </div>
     )
   }
 
-  if (!authorized) {
-    return null
-  }
-
-  const quickActions = [
-    {
-      label: 'Nueva Orden',
-      icon: <PlusCircle size={28} />,
-      href: WA_BASE,
-      external: true,
-      color: 'bg-blue-600 hover:bg-blue-700',
-    },
-    {
-      label: 'Ver Órdenes',
-      icon: <List size={28} />,
-      action: scrollToOrders,
-      color: 'bg-gray-700 hover:bg-gray-600',
-    },
-    {
-      label: 'Recargar Saldo',
-      icon: <CreditCard size={28} />,
-      href: WA_BASE,
-      external: true,
-      color: 'bg-green-700 hover:bg-green-600',
-    },
-    {
-      label: 'Servicios',
-      icon: <Grid size={28} />,
-      href: '/',
-      external: false,
-      color: 'bg-purple-700 hover:bg-purple-600',
-    },
-    {
-      label: 'Administrar Productos',
-      icon: <Package size={28} />,
-      href: '/products',
-      external: false,
-      color: 'bg-orange-600 hover:bg-orange-700',
-    },
-  ]
+  if (!authorized) return null
 
   return (
-    <div className="min-h-screen bg-black text-white fade-in">
-
+    <div className="min-h-screen bg-black text-white">
       {/* HEADER */}
-      <header className="bg-gray-900/90 border-b border-gray-800 px-6 py-4 flex items-center justify-between sticky top-0 z-40 backdrop-blur-md">
 
-        <div>
-          <Link
-            to="/"
-            className="text-2xl font-black bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent"
-          >
-            Servidor Uverley
-          </Link>
+      <header className="bg-gray-900 border-b border-gray-800 px-4 md:px-6 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+          <div>
+            <Link
+              to="/"
+              className="text-2xl md:text-3xl font-black bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent"
+            >
+              Servidor Uverley
+            </Link>
 
-          <p className="text-gray-400 text-sm mt-1">
-            Panel de administración
-          </p>
+            <p className="text-gray-400 text-sm">
+              Panel de administración
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadData}
+              className="p-3 bg-gray-800 hover:bg-gray-700 rounded-lg"
+              title="Actualizar"
+            >
+              <RefreshCw size={19} />
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 px-4 py-3 rounded-lg"
+            >
+              <LogOut size={18} />
+              <span className="hidden sm:inline">
+                Salir
+              </span>
+            </button>
+          </div>
         </div>
-
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-4 py-2 rounded-lg transition-all text-sm font-medium"
-        >
-          <LogOut size={16} />
-          Cerrar Sesión
-        </button>
-
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-12">
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* NAVEGACIÓN */}
 
-        {/* BIENVENIDA */}
-        <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-800/50 rounded-2xl p-8 mb-10 text-center">
+        <div className="flex gap-2 overflow-x-auto mb-8 pb-2">
+          <button
+            onClick={() =>
+              setActiveSection('inicio')
+            }
+            className={`px-5 py-3 rounded-lg font-semibold whitespace-nowrap ${
+              activeSection === 'inicio'
+                ? 'bg-blue-600'
+                : 'bg-gray-800'
+            }`}
+          >
+            Inicio
+          </button>
 
-          <h1 className="text-3xl font-black text-white mb-2">
-            ¡Bienvenido al panel!
-          </h1>
+          <button
+            onClick={() =>
+              setActiveSection('clientes')
+            }
+            className={`px-5 py-3 rounded-lg font-semibold whitespace-nowrap ${
+              activeSection === 'clientes'
+                ? 'bg-blue-600'
+                : 'bg-gray-800'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <Users size={18} />
+              Clientes
+            </span>
+          </button>
 
-          <p className="text-gray-300 text-lg">
-            Administración de Servidor Uverley
-          </p>
+          <button
+            onClick={() =>
+              setActiveSection('movimientos')
+            }
+            className={`px-5 py-3 rounded-lg font-semibold whitespace-nowrap ${
+              activeSection === 'movimientos'
+                ? 'bg-blue-600'
+                : 'bg-gray-800'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <History size={18} />
+              Movimientos
+            </span>
+          </button>
 
+          <button
+            onClick={() =>
+              setActiveSection('pedidos')
+            }
+            className={`px-5 py-3 rounded-lg font-semibold whitespace-nowrap ${
+              activeSection === 'pedidos'
+                ? 'bg-blue-600'
+                : 'bg-gray-800'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <ShoppingCart size={18} />
+              Pedidos
+            </span>
+          </button>
+
+          <Link
+            to="/products"
+            className="px-5 py-3 rounded-lg font-semibold bg-orange-600 hover:bg-orange-700 whitespace-nowrap"
+          >
+            <span className="flex items-center gap-2">
+              <Package size={18} />
+              Productos
+            </span>
+          </Link>
         </div>
 
-        {/* ACCIONES */}
-        <h2 className="text-2xl font-bold text-white mb-6">
-          Acciones Rápidas
-        </h2>
+        {/* INICIO */}
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-14">
+        {activeSection === 'inicio' && (
+          <>
+            <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-800/50 rounded-2xl p-8 mb-8">
+              <h1 className="text-3xl font-black mb-2">
+                Bienvenido al panel
+              </h1>
 
-          {quickActions.map((action) =>
-            action.external ? (
-              <a
-                key={action.label}
-                href={action.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`${action.color} text-white rounded-2xl p-6 flex flex-col items-center gap-3 font-bold text-lg transition-all hover:scale-105 hover:shadow-xl text-center`}
-              >
-                {action.icon}
-                {action.label}
-              </a>
-            ) : action.action ? (
-              <button
-                key={action.label}
-                onClick={action.action}
-                className={`${action.color} text-white rounded-2xl p-6 flex flex-col items-center gap-3 font-bold text-lg transition-all hover:scale-105 hover:shadow-xl text-center`}
-              >
-                {action.icon}
-                {action.label}
-              </button>
-            ) : (
-              <Link
-                key={action.label}
-                to={action.href as '/'}
-                className={`${action.color} text-white rounded-2xl p-6 flex flex-col items-center gap-3 font-bold text-lg transition-all hover:scale-105 hover:shadow-xl text-center`}
-              >
-                {action.icon}
-                {action.label}
-              </Link>
-            ),
-          )}
-
-        </div>
-
-        {/* PEDIDOS */}
-        <section
-          id="ordenes"
-          className="scroll-mt-24"
-        >
-
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-
-            <div>
-              <h2 className="text-2xl font-bold text-white">
-                Pedidos
-              </h2>
-
-              <p className="text-gray-400 mt-1">
-                Gestiona los pedidos realizados por tus clientes.
+              <p className="text-gray-300">
+                Administra clientes, saldos, pedidos y
+                productos desde un solo lugar.
               </p>
             </div>
 
-            <button
-              onClick={loadOrders}
-              disabled={loadingOrders}
-              className="flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-white px-5 py-3 rounded-lg font-semibold transition-all"
-            >
-              <RefreshCw
-                size={18}
-                className={
-                  loadingOrders
-                    ? 'animate-spin'
-                    : ''
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+                <Users className="text-blue-400 mb-4" />
+                <p className="text-gray-400">
+                  Usuarios
+                </p>
+                <p className="text-3xl font-black">
+                  {clients.length}
+                </p>
+              </div>
+
+              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+                <Wallet className="text-green-400 mb-4" />
+                <p className="text-gray-400">
+                  Saldo total
+                </p>
+                <p className="text-2xl font-black">
+                  {formatPrice(
+                    clients.reduce(
+                      (sum, client) =>
+                        sum +
+                        Number(client.balance || 0),
+                      0,
+                    ),
+                  )}
+                </p>
+              </div>
+
+              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+                <ShoppingCart className="text-purple-400 mb-4" />
+                <p className="text-gray-400">
+                  Pedidos
+                </p>
+                <p className="text-3xl font-black">
+                  {orders.length}
+                </p>
+              </div>
+
+              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+                <History className="text-yellow-400 mb-4" />
+                <p className="text-gray-400">
+                  Movimientos
+                </p>
+                <p className="text-3xl font-black">
+                  {transactions.length}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-5 mt-8">
+              <button
+                onClick={() =>
+                  setActiveSection('clientes')
                 }
-              />
-              Actualizar
-            </button>
+                className="bg-blue-600 hover:bg-blue-700 rounded-2xl p-7 text-left transition-all"
+              >
+                <Wallet size={30} />
+                <h2 className="text-xl font-bold mt-4">
+                  Administrar saldos
+                </h2>
+                <p className="text-blue-100 mt-2">
+                  Agrega o descuenta saldo a tus
+                  clientes.
+                </p>
+              </button>
 
-          </div>
+              <Link
+                to="/products"
+                className="bg-orange-600 hover:bg-orange-700 rounded-2xl p-7 text-left transition-all"
+              >
+                <Package size={30} />
+                <h2 className="text-xl font-bold mt-4">
+                  Administrar productos
+                </h2>
+                <p className="text-orange-100 mt-2">
+                  Agrega productos, cambia precios e
+                  imágenes.
+                </p>
+              </Link>
+            </div>
+          </>
+        )}
 
-          <div className="bg-gray-900/70 border border-gray-800 rounded-2xl overflow-hidden">
+        {/* CLIENTES */}
 
-            {loadingOrders ? (
+        {activeSection === 'clientes' && (
+          <>
+            <div className="flex items-center gap-3 mb-6">
+              <button
+                onClick={() =>
+                  setActiveSection('inicio')
+                }
+                className="p-2 bg-gray-800 rounded-lg"
+              >
+                <ArrowLeft size={20} />
+              </button>
 
-              <div className="py-20 text-center">
-
-                <LoaderCircle
-                  size={40}
-                  className="animate-spin text-blue-500 mx-auto mb-4"
-                />
+              <div>
+                <h1 className="text-3xl font-black">
+                  Clientes y saldos
+                </h1>
 
                 <p className="text-gray-400">
-                  Cargando pedidos...
+                  Administra el saldo de cada cliente.
+                </p>
+              </div>
+            </div>
+
+            {selectedClient && (
+              <div className="bg-gray-900 border border-blue-600 rounded-2xl p-6 mb-8">
+                <h2 className="text-xl font-bold mb-2">
+                  Modificar saldo
+                </h2>
+
+                <p className="text-gray-400 mb-5">
+                  {selectedClient.email}
                 </p>
 
-              </div>
-
-            ) : orders.length === 0 ? (
-
-              <div className="py-20 text-center px-6">
-
-                <ShoppingBag
-                  size={50}
-                  className="text-gray-600 mx-auto mb-4"
-                />
-
-                <h3 className="text-xl font-bold text-white mb-2">
-                  No hay pedidos
-                </h3>
-
-                <p className="text-gray-400">
-                  Los nuevos pedidos aparecerán aquí.
+                <p className="text-green-400 text-3xl font-black mb-5">
+                  {formatPrice(
+                    selectedClient.balance,
+                  )}
                 </p>
 
-              </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <input
+                    type="number"
+                    min="20000"
+                    max="2000000"
+                    placeholder="Monto"
+                    value={amount}
+                    onChange={(e) =>
+                      setAmount(e.target.value)
+                    }
+                    className="bg-black border border-gray-700 rounded-lg px-4 py-3 text-white outline-none focus:border-blue-500"
+                  />
 
-            ) : (
+                  <input
+                    type="text"
+                    placeholder="Descripción (opcional)"
+                    value={description}
+                    onChange={(e) =>
+                      setDescription(e.target.value)
+                    }
+                    className="bg-black border border-gray-700 rounded-lg px-4 py-3 text-white outline-none focus:border-blue-500"
+                  />
+                </div>
 
-              <div className="divide-y divide-gray-800">
-
-                {orders.map((order) => (
-
-                  <div
-                    key={order.id}
-                    className="p-6 hover:bg-gray-800/30 transition-all"
+                <div className="flex flex-wrap gap-3 mt-5">
+                  <button
+                    disabled={processing}
+                    onClick={() =>
+                      changeBalance('recarga')
+                    }
+                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 px-5 py-3 rounded-lg font-bold"
                   >
+                    <Plus size={20} />
+                    Agregar saldo
+                  </button>
 
-                    <div className="flex flex-col lg:flex-row lg:items-center gap-5">
+                  <button
+                    disabled={processing}
+                    onClick={() =>
+                      changeBalance('descuento')
+                    }
+                    className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 px-5 py-3 rounded-lg font-bold"
+                  >
+                    <Minus size={20} />
+                    Descontar saldo
+                  </button>
 
-                      {/* INFORMACIÓN */}
-                      <div className="flex-1 min-w-0">
+                  <button
+                    onClick={() =>
+                      setSelectedClient(null)
+                    }
+                    className="bg-gray-700 hover:bg-gray-600 px-5 py-3 rounded-lg font-bold"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
 
-                        <div className="flex items-center gap-3 mb-2">
+            <div className="space-y-4">
+              {clients.map((client) => (
+                <div
+                  key={client.id}
+                  className="bg-gray-900 border border-gray-800 rounded-2xl p-5"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+                    <div>
+                      <p className="font-bold text-lg">
+                        {client.email ??
+                          'Usuario registrado'}
+                      </p>
 
-                          <ShoppingBag
-                            size={20}
-                            className="text-blue-400 shrink-0"
-                          />
+                      <p className="text-gray-500 text-xs mt-1">
+                        ID: {client.id}
+                      </p>
+                    </div>
 
-                          <h3 className="text-lg font-bold text-white truncate">
-                            {order.product_name ||
-                              'Servicio sin nombre'}
-                          </h3>
-
-                        </div>
-
-                        <p className="text-green-400 text-xl font-black mb-2">
-                          {formatPrice(order.price)}
+                    <div className="flex items-center gap-5">
+                      <div>
+                        <p className="text-gray-400 text-sm">
+                          Saldo
                         </p>
 
-                        <p className="text-gray-500 text-xs break-all">
-                          Cliente: {order.user_id}
+                        <p className="text-green-400 text-2xl font-black">
+                          {formatPrice(
+                            client.balance,
+                          )}
+                        </p>
+                      </div>
+
+                      {client.role !== 'admin' && (
+                        <button
+                          onClick={() =>
+                            setSelectedClient(client)
+                          }
+                          className="bg-blue-600 hover:bg-blue-700 px-5 py-3 rounded-lg font-bold"
+                        >
+                          Administrar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* MOVIMIENTOS */}
+
+        {activeSection === 'movimientos' && (
+          <>
+            <h1 className="text-3xl font-black mb-2">
+              Historial de saldo
+            </h1>
+
+            <p className="text-gray-400 mb-8">
+              Últimos movimientos realizados.
+            </p>
+
+            <div className="space-y-3">
+              {transactions.length === 0 ? (
+                <div className="bg-gray-900 rounded-2xl p-8 text-center text-gray-400">
+                  Todavía no hay movimientos.
+                </div>
+              ) : (
+                transactions.map((transaction) => (
+                  <div
+                    key={transaction.id}
+                    className="bg-gray-900 border border-gray-800 rounded-xl p-5"
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div>
+                        <p className="font-bold">
+                          {clientEmail(
+                            transaction.user_id,
+                          )}
+                        </p>
+
+                        <p className="text-gray-400 text-sm">
+                          {transaction.description ??
+                            'Movimiento de saldo'}
                         </p>
 
                         <p className="text-gray-500 text-xs mt-1">
-                          Pedido #{order.id}
-                          {' • '}
-                          {formatDate(order.created_at)}
+                          {new Date(
+                            transaction.created_at,
+                          ).toLocaleString('es-CO')}
+                        </p>
+                      </div>
+
+                      <div
+                        className={`text-xl font-black ${
+                          transaction.type ===
+                          'descuento'
+                            ? 'text-red-400'
+                            : 'text-green-400'
+                        }`}
+                      >
+                        {transaction.type ===
+                        'descuento'
+                          ? '-'
+                          : '+'}
+                        {formatPrice(
+                          transaction.amount,
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </>
+        )}
+
+        {/* PEDIDOS */}
+
+        {activeSection === 'pedidos' && (
+          <>
+            <h1 className="text-3xl font-black mb-2">
+              Pedidos
+            </h1>
+
+            <p className="text-gray-400 mb-8">
+              Pedidos realizados por los clientes.
+            </p>
+
+            <div className="space-y-3">
+              {orders.length === 0 ? (
+                <div className="bg-gray-900 rounded-2xl p-8 text-center text-gray-400">
+                  Todavía no hay pedidos.
+                </div>
+              ) : (
+                orders.map((order) => (
+                  <div
+                    key={order.id}
+                    className="bg-gray-900 border border-gray-800 rounded-xl p-5"
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <p className="font-bold text-lg">
+                          {order.product_name}
                         </p>
 
+                        <p className="text-gray-400 text-sm">
+                          Cliente:{' '}
+                          {clientEmail(order.user_id)}
+                        </p>
+
+                        <p className="text-gray-500 text-xs mt-1">
+                          {new Date(
+                            order.created_at,
+                          ).toLocaleString('es-CO')}
+                        </p>
                       </div>
 
-                      {/* ESTADO */}
-                      <div className="flex flex-col sm:flex-row lg:flex-col gap-3 min-w-[220px]">
+                      <div className="text-right">
+                        <p className="text-green-400 font-black text-xl">
+                          {formatPrice(order.price)}
+                        </p>
 
-                        <div
-                          className={`flex items-center justify-center gap-2 border rounded-lg px-4 py-2 font-semibold ${getStatusColor(
-                            order.status,
-                          )}`}
-                        >
-                          {getStatusIcon(order.status)}
-                          {order.status || 'Pendiente'}
-                        </div>
-
-                        <select
-                          value={order.status || 'pendiente'}
-                          disabled={
-                            updatingOrder === order.id
-                          }
-                          onChange={(event) =>
-                            updateOrderStatus(
-                              order.id,
-                              event.target.value,
-                            )
-                          }
-                          className="bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2 outline-none focus:border-blue-500"
-                        >
-                          <option value="pendiente">
-                            Pendiente
-                          </option>
-
-                          <option value="en proceso">
-                            En proceso
-                          </option>
-
-                          <option value="completado">
-                            Completado
-                          </option>
-
-                          <option value="cancelado">
-                            Cancelado
-                          </option>
-                        </select>
-
+                        <span className="inline-block bg-yellow-600/20 text-yellow-400 px-3 py-1 rounded-full text-sm mt-1">
+                          {order.status}
+                        </span>
                       </div>
-
                     </div>
-
                   </div>
-
-                ))}
-
-              </div>
-
-            )}
-
-          </div>
-
-        </section>
-
-        {/* AYUDA */}
-        <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-8 text-center mt-12">
-
-          <h3 className="text-xl font-bold text-white mb-3">
-            ¿Necesitas ayuda?
-          </h3>
-
-          <p className="text-gray-400 mb-6">
-            Contacta a soporte directamente por WhatsApp.
-          </p>
-
-          <a
-            href={WA_BASE}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all"
-          >
-            <MessageCircle size={22} />
-            Soporte por WhatsApp
-          </a>
-
-        </div>
-
+                ))
+              )}
+            </div>
+          </>
+        )}
       </main>
+
+      {/* WHATSAPP */}
+
+      <a
+        href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(
+          'Hola Servidor Uverley, necesito ayuda con el panel.',
+        )}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-5 right-5 bg-green-600 hover:bg-green-700 p-4 rounded-full shadow-xl"
+      >
+        <MessageCircle size={25} />
+      </a>
     </div>
   )
 }
