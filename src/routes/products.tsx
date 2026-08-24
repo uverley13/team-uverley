@@ -17,11 +17,13 @@ export const Route = createFileRoute('/products')({
 
 type Product = {
   id: string
-  nombre: string
-  descripcion: string | null
-  precio: number
+  name: string
+  description: string | null
+  price: number
   image_url: string | null
-  activo: boolean
+  active: boolean
+  created_at: string
+  updated_at: string
 }
 
 function ProductsPage() {
@@ -32,10 +34,9 @@ function ProductsPage() {
   const [saving, setSaving] = useState(false)
 
   const [editingId, setEditingId] = useState<string | null>(null)
-
-  const [nombre, setNombre] = useState('')
-  const [descripcion, setDescripcion] = useState('')
-  const [precio, setPrecio] = useState('')
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [price, setPrice] = useState('')
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [currentImage, setCurrentImage] = useState<string | null>(null)
 
@@ -53,13 +54,13 @@ function ProductsPage() {
       return
     }
 
-    const { data: profile } = await supabase
+    const { data: profile, error } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single()
 
-    if (!profile || profile.role !== 'admin') {
+    if (error || !profile || profile.role !== 'admin') {
       navigate({ to: '/' })
       return
     }
@@ -73,7 +74,7 @@ function ProductsPage() {
     const { data, error } = await supabase
       .from('products')
       .select('*')
-      .order('creado_en', { ascending: false })
+      .order('created_at', { ascending: false })
 
     if (error) {
       alert('No se pudieron cargar los productos: ' + error.message)
@@ -86,18 +87,18 @@ function ProductsPage() {
 
   function clearForm() {
     setEditingId(null)
-    setNombre('')
-    setDescripcion('')
-    setPrecio('')
+    setName('')
+    setDescription('')
+    setPrice('')
     setImageFile(null)
     setCurrentImage(null)
   }
 
   function editProduct(product: Product) {
     setEditingId(product.id)
-    setNombre(product.nombre)
-    setDescripcion(product.descripcion ?? '')
-    setPrecio(String(product.precio))
+    setName(product.name)
+    setDescription(product.description ?? '')
+    setPrice(String(product.price))
     setCurrentImage(product.image_url)
     setImageFile(null)
 
@@ -108,7 +109,9 @@ function ProductsPage() {
   }
 
   async function uploadImage(file: File) {
-    const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    const extension =
+      file.name.split('.').pop()?.toLowerCase() || 'jpg'
+
     const fileName = `${crypto.randomUUID()}.${extension}`
 
     const { error } = await supabase.storage
@@ -119,7 +122,9 @@ function ProductsPage() {
       })
 
     if (error) {
-      throw new Error('No se pudo subir la imagen: ' + error.message)
+      throw new Error(
+        'No se pudo subir la imagen: ' + error.message
+      )
     }
 
     const { data } = supabase.storage
@@ -132,12 +137,12 @@ function ProductsPage() {
   async function saveProduct(e: React.FormEvent) {
     e.preventDefault()
 
-    if (!nombre.trim()) {
+    if (!name.trim()) {
       alert('Escribe el nombre del producto.')
       return
     }
 
-    const numericPrice = Number(precio)
+    const numericPrice = Number(price)
 
     if (Number.isNaN(numericPrice) || numericPrice < 0) {
       alert('Escribe un precio válido.')
@@ -157,11 +162,11 @@ function ProductsPage() {
         const { error } = await supabase
           .from('products')
           .update({
-            nombre: nombre.trim(),
-            descripcion: descripcion.trim(),
-            precio: numericPrice,
+            name: name.trim(),
+            description: description.trim(),
+            price: numericPrice,
             image_url: imageUrl,
-            actualizado_en: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           })
           .eq('id', editingId)
 
@@ -174,11 +179,11 @@ function ProductsPage() {
         const { error } = await supabase
           .from('products')
           .insert({
-            nombre: nombre.trim(),
-            descripcion: descripcion.trim(),
-            precio: numericPrice,
+            name: name.trim(),
+            description: description.trim(),
+            price: numericPrice,
             image_url: imageUrl,
-            activo: true,
+            active: true,
           })
 
         if (error) {
@@ -205,13 +210,15 @@ function ProductsPage() {
     const { error } = await supabase
       .from('products')
       .update({
-        activo: !product.activo,
-        actualizado_en: new Date().toISOString(),
+        active: !product.active,
+        updated_at: new Date().toISOString(),
       })
       .eq('id', product.id)
 
     if (error) {
-      alert('No se pudo cambiar el estado: ' + error.message)
+      alert(
+        'No se pudo cambiar el estado: ' + error.message
+      )
       return
     }
 
@@ -220,7 +227,7 @@ function ProductsPage() {
 
   async function deleteProduct(product: Product) {
     const confirmed = window.confirm(
-      `¿Seguro que quieres eliminar "${product.nombre}"?`
+      `¿Seguro que quieres eliminar "${product.name}"?`
     )
 
     if (!confirmed) return
@@ -231,7 +238,9 @@ function ProductsPage() {
       .eq('id', product.id)
 
     if (error) {
-      alert('No se pudo eliminar el producto: ' + error.message)
+      alert(
+        'No se pudo eliminar el producto: ' + error.message
+      )
       return
     }
 
@@ -241,7 +250,9 @@ function ProductsPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p className="text-gray-400">Cargando productos...</p>
+        <p className="text-gray-400">
+          Cargando productos...
+        </p>
       </div>
     )
   }
@@ -276,33 +287,40 @@ function ProductsPage() {
       <main className="max-w-6xl mx-auto px-4 py-10">
         <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-6 mb-10">
           <h1 className="text-3xl font-black mb-2">
-            {editingId ? 'Editar producto' : 'Agregar producto'}
+            {editingId
+              ? 'Editar producto'
+              : 'Agregar producto'}
           </h1>
 
           <p className="text-gray-400 mb-6">
-            Puedes administrar los productos que aparecen en tu página.
+            Administra los productos que aparecen en tu página.
           </p>
 
-          <form onSubmit={saveProduct} className="space-y-4">
+          <form
+            onSubmit={saveProduct}
+            className="space-y-4"
+          >
             <input
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               placeholder="Nombre del producto"
               className="w-full bg-gray-800 border border-gray-700 text-white p-4 rounded-lg"
               required
             />
 
             <textarea
-              value={descripcion}
-              onChange={(e) => setDescripcion(e.target.value)}
+              value={description}
+              onChange={(e) =>
+                setDescription(e.target.value)
+              }
               placeholder="Descripción"
               rows={3}
               className="w-full bg-gray-800 border border-gray-700 text-white p-4 rounded-lg"
             />
 
             <input
-              value={precio}
-              onChange={(e) => setPrecio(e.target.value)}
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
               type="number"
               min="0"
               step="0.01"
@@ -321,7 +339,9 @@ function ProductsPage() {
                 type="file"
                 accept="image/*"
                 onChange={(e) =>
-                  setImageFile(e.target.files?.[0] ?? null)
+                  setImageFile(
+                    e.target.files?.[0] ?? null
+                  )
                 }
                 className="w-full text-gray-300"
               />
@@ -342,6 +362,7 @@ function ProductsPage() {
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-6 py-4 rounded-lg font-bold flex items-center justify-center gap-2"
               >
                 <Plus size={20} />
+
                 {saving
                   ? 'Guardando...'
                   : editingId
@@ -380,7 +401,7 @@ function ProductsPage() {
                 {product.image_url ? (
                   <img
                     src={product.image_url}
-                    alt={product.nombre}
+                    alt={product.name}
                     className="w-full h-48 object-cover"
                   />
                 ) : (
@@ -392,10 +413,10 @@ function ProductsPage() {
                 <div className="p-5">
                   <div className="flex justify-between items-start gap-3">
                     <h3 className="text-xl font-bold">
-                      {product.nombre}
+                      {product.name}
                     </h3>
 
-                    {product.activo ? (
+                    {product.active ? (
                       <span className="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">
                         Activo
                       </span>
@@ -407,11 +428,11 @@ function ProductsPage() {
                   </div>
 
                   <p className="text-gray-400 text-sm mt-2 min-h-10">
-                    {product.descripcion}
+                    {product.description}
                   </p>
 
                   <p className="text-green-400 text-2xl font-black mt-4">
-                    ${product.precio}
+                    ${product.price}
                   </p>
 
                   <div className="grid grid-cols-3 gap-2 mt-5">
@@ -424,11 +445,17 @@ function ProductsPage() {
                     </button>
 
                     <button
-                      onClick={() => toggleProduct(product)}
+                      onClick={() =>
+                        toggleProduct(product)
+                      }
                       className="bg-gray-700 hover:bg-gray-600 p-3 rounded-lg flex justify-center"
-                      title={product.activo ? 'Desactivar' : 'Activar'}
+                      title={
+                        product.active
+                          ? 'Desactivar'
+                          : 'Activar'
+                      }
                     >
-                      {product.activo ? (
+                      {product.active ? (
                         <EyeOff size={18} />
                       ) : (
                         <Eye size={18} />
@@ -436,7 +463,9 @@ function ProductsPage() {
                     </button>
 
                     <button
-                      onClick={() => deleteProduct(product)}
+                      onClick={() =>
+                        deleteProduct(product)
+                      }
                       className="bg-red-700 hover:bg-red-800 p-3 rounded-lg flex justify-center"
                       title="Eliminar"
                     >
