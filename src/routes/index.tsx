@@ -8,6 +8,9 @@ import {
   DollarSign,
   MessageCircle,
   Clock,
+  User,
+  LogOut,
+  Settings,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
@@ -27,13 +30,13 @@ type Product = {
 const WA_NUMBER = '573172329884'
 
 const WA_BASE = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(
-  'Hola Team Uverley, quiero información sobre sus servicios',
+  'Hola Servidor Uverley, quiero información sobre sus servicios',
 )}`
 
 function waLink(service?: string) {
   const text = service
-    ? `Hola Team Uverley, quiero el servicio de ${service}`
-    : 'Hola Team Uverley, quiero información sobre sus servicios'
+    ? `Hola Servidor Uverley, quiero el servicio de ${service}`
+    : 'Hola Servidor Uverley, quiero información sobre sus servicios'
 
   return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`
 }
@@ -51,8 +54,8 @@ const whyUs = [
   },
   {
     icon: <DollarSign size={32} className="text-green-400" />,
-    title: 'Precios Bajos',
-    desc: 'Precios competitivos y actualizados.',
+    title: 'Precios Competitivos',
+    desc: 'Precios actualizados y accesibles.',
   },
   {
     icon: <Clock size={32} className="text-purple-400" />,
@@ -68,9 +71,55 @@ function Home() {
   const [loadingProducts, setLoadingProducts] = useState(true)
   const [orderingId, setOrderingId] = useState<number | null>(null)
 
+  const [user, setUser] = useState<any>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [checkingUser, setCheckingUser] = useState(true)
+
   useEffect(() => {
     loadProducts()
+    checkUser()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      checkUser()
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
+
+  async function checkUser() {
+    setCheckingUser(true)
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    setUser(user)
+
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      setIsAdmin(profile?.role === 'admin')
+    } else {
+      setIsAdmin(false)
+    }
+
+    setCheckingUser(false)
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    setUser(null)
+    setIsAdmin(false)
+    navigate({ to: '/' })
+  }
 
   async function loadProducts() {
     const { data, error } = await supabase
@@ -103,10 +152,10 @@ function Home() {
 
     try {
       const {
-        data: { user },
+        data: { user: currentUser },
       } = await supabase.auth.getUser()
 
-      if (!user) {
+      if (!currentUser) {
         alert('Debes iniciar sesión para realizar un pedido.')
         navigate({ to: '/login' })
         return
@@ -115,7 +164,7 @@ function Home() {
       const { error } = await supabase
         .from('orders')
         .insert({
-          user_id: user.id,
+          user_id: currentUser.id,
           product_id: product.id,
           product_name: product.name,
           price: product.price,
@@ -134,7 +183,6 @@ function Home() {
         `Pedido creado correctamente.\n\nServicio: ${product.name}\nPrecio: ${formatPrice(product.price)}`,
       )
 
-      // Abrir WhatsApp después de crear el pedido
       window.open(
         waLink(product.name),
         '_blank',
@@ -150,16 +198,18 @@ function Home() {
 
       {/* HEADER */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-gray-800">
+
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
 
           <Link
             to="/"
             className="text-3xl font-black tracking-tight bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent shrink-0"
           >
-            Team Uverley
+            Servidor Uverley
           </Link>
 
           <nav className="hidden md:flex items-center gap-8">
+
             <a
               href="#"
               className="text-white hover:text-blue-400 transition-colors font-medium"
@@ -187,15 +237,50 @@ function Home() {
             >
               Contacto
             </a>
+
           </nav>
 
           <div className="flex items-center gap-3">
-            <Link
-              to="/login"
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm"
-            >
-              Iniciar Sesión
-            </Link>
+
+            {!checkingUser && !user && (
+              <Link
+                to="/login"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm flex items-center gap-2"
+              >
+                <User size={18} />
+                Iniciar Sesión
+              </Link>
+            )}
+
+            {!checkingUser && user && isAdmin && (
+              <Link
+                to="/dashboard"
+                className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm flex items-center gap-2"
+              >
+                <Settings size={18} />
+                Panel Admin
+              </Link>
+            )}
+
+            {!checkingUser && user && !isAdmin && (
+              <button
+                onClick={() => navigate({ to: '/dashboard' })}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm flex items-center gap-2"
+              >
+                <User size={18} />
+                Mi Cuenta
+              </button>
+            )}
+
+            {!checkingUser && user && (
+              <button
+                onClick={handleLogout}
+                className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white p-3 rounded-lg transition-all"
+                title="Cerrar sesión"
+              >
+                <LogOut size={20} />
+              </button>
+            )}
 
             <a
               href={WA_BASE}
@@ -206,23 +291,32 @@ function Home() {
             >
               <MessageCircle size={20} />
             </a>
+
           </div>
         </div>
       </header>
 
       {/* HERO */}
       <section className="min-h-screen flex items-center justify-center px-4 pt-24 bg-gradient-to-b from-black via-gray-950 to-black">
+
         <div className="max-w-5xl mx-auto text-center">
 
+          <p className="text-blue-400 font-bold tracking-[0.3em] uppercase mb-4">
+            Soluciones digitales
+          </p>
+
           <h1 className="text-6xl md:text-8xl font-black mb-6 bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent leading-tight">
-            Team Uverley
-            <br />
-            Servicios Elite 2026
+            Servidor Uverley
           </h1>
 
-          <p className="text-2xl text-gray-300 mb-12 max-w-3xl mx-auto leading-relaxed">
-            Servicios profesionales para dispositivos móviles.
-            Atención rápida y soporte por WhatsApp.
+          <p className="text-3xl md:text-4xl font-bold text-white mb-6">
+            Tecnología, servicios y soluciones
+          </p>
+
+          <p className="text-xl text-gray-400 mb-12 max-w-3xl mx-auto leading-relaxed">
+            Servicios profesionales para dispositivos móviles,
+            atención rápida, precios competitivos y soporte
+            personalizado.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -231,7 +325,7 @@ function Home() {
               href="#servicios"
               className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-5 rounded-xl text-xl font-bold transition-all hover:scale-105"
             >
-              Ver Servicios
+              Explorar Servicios
             </a>
 
             <a
@@ -250,6 +344,7 @@ function Home() {
 
       {/* SERVICIOS */}
       <section id="servicios" className="py-20 px-4">
+
         <div className="max-w-7xl mx-auto">
 
           <h2 className="text-4xl md:text-5xl font-black text-center mb-4 text-white">
@@ -350,6 +445,7 @@ function Home() {
         id="precios"
         className="py-20 px-4 bg-gray-950/50"
       >
+
         <div className="max-w-5xl mx-auto">
 
           <h2 className="text-4xl font-black text-center mb-14 text-white">
@@ -413,9 +509,11 @@ function Home() {
 
       {/* FOOTER */}
       <footer className="bg-gray-900 py-10 px-4 text-center border-t border-gray-800">
+
         <p className="text-gray-400 text-sm">
-          © 2026 Team Uverley | WhatsApp +57 317 232 9884
+          © 2026 Servidor Uverley | WhatsApp +57 317 232 9884
         </p>
+
       </footer>
 
     </div>
