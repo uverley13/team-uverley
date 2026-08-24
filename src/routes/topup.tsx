@@ -17,14 +17,15 @@ export const Route = createFileRoute('/topup')({
 const NEQUI_NAME = 'Uverley Rodriguez'
 const NEQUI_NUMBER = '3153310730'
 
-const AMOUNTS = [10000, 20000, 50000, 100000, 200000]
+const MIN_AMOUNT = 20000
+const MAX_AMOUNT = 2000000
 
 function TopupPage() {
   const navigate = useNavigate()
 
   const [user, setUser] = useState<any>(null)
   const [balance, setBalance] = useState(0)
-  const [amount, setAmount] = useState<number | null>(null)
+  const [amount, setAmount] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
@@ -70,12 +71,45 @@ function TopupPage() {
     }).format(value)
   }
 
+  function formatInput(value: string) {
+    const numbers = value.replace(/\D/g, '')
+
+    if (!numbers) {
+      setAmount('')
+      return
+    }
+
+    const number = Number(numbers)
+
+    setAmount(
+      new Intl.NumberFormat('es-CO', {
+        maximumFractionDigits: 0,
+      }).format(number),
+    )
+  }
+
   async function submitTopup() {
     setError('')
     setMessage('')
 
-    if (!amount || amount <= 0) {
-      setError('Selecciona un monto para recargar.')
+    const numericAmount = Number(amount.replace(/\D/g, ''))
+
+    if (!numericAmount) {
+      setError('Escribe el monto que deseas recargar.')
+      return
+    }
+
+    if (numericAmount < MIN_AMOUNT) {
+      setError(
+        `La recarga mínima es de ${formatPrice(MIN_AMOUNT)}.`,
+      )
+      return
+    }
+
+    if (numericAmount > MAX_AMOUNT) {
+      setError(
+        `La recarga máxima es de ${formatPrice(MAX_AMOUNT)}.`,
+      )
       return
     }
 
@@ -115,7 +149,8 @@ function TopupPage() {
 
       if (uploadError) {
         throw new Error(
-          'No se pudo subir el comprobante: ' + uploadError.message,
+          'No se pudo subir el comprobante: ' +
+            uploadError.message,
         )
       }
 
@@ -129,22 +164,25 @@ function TopupPage() {
         .from('topups')
         .insert({
           user_id: user.id,
-          amount,
+          amount: numericAmount,
           proof_url: proofUrl,
           status: 'pending',
         })
 
       if (insertError) {
         throw new Error(
-          'No se pudo registrar la recarga: ' + insertError.message,
+          'No se pudo registrar la recarga: ' +
+            insertError.message,
         )
       }
 
       setMessage(
-        'Recarga enviada correctamente. Será revisada por el administrador.',
+        `Solicitud enviada correctamente por ${formatPrice(
+          numericAmount,
+        )}. El administrador revisará tu comprobante.`,
       )
 
-      setAmount(null)
+      setAmount('')
       setFile(null)
 
       const fileInput = document.getElementById(
@@ -191,6 +229,7 @@ function TopupPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-10">
+        {/* SALDO */}
         <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-6 mb-6">
           <div className="flex items-center gap-4">
             <div className="bg-blue-600/20 p-4 rounded-xl">
@@ -198,7 +237,10 @@ function TopupPage() {
             </div>
 
             <div>
-              <p className="text-gray-400 text-sm">Saldo actual</p>
+              <p className="text-gray-400 text-sm">
+                Saldo disponible
+              </p>
+
               <p className="text-3xl font-black text-green-400">
                 {formatPrice(balance)}
               </p>
@@ -206,21 +248,23 @@ function TopupPage() {
           </div>
         </div>
 
+        {/* RECARGA */}
         <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-8">
           <h1 className="text-3xl font-black mb-2">
             Recargar saldo
           </h1>
 
           <p className="text-gray-400 mb-8">
-            Realiza el pago por Nequi y envía el comprobante.
+            Agrega saldo a tu cuenta para realizar pedidos.
           </p>
 
+          {/* NEQUI */}
           <div className="bg-gradient-to-r from-purple-900/40 to-blue-900/40 border border-purple-700/50 rounded-2xl p-6 mb-8">
             <p className="text-gray-400 text-sm mb-2">
-              Envía el dinero por Nequi a:
+              Realiza el pago por Nequi a:
             </p>
 
-            <p className="text-2xl font-black text-white">
+            <p className="text-2xl font-black">
               {NEQUI_NAME}
             </p>
 
@@ -228,58 +272,72 @@ function TopupPage() {
               {NEQUI_NUMBER}
             </p>
 
-            <p className="text-gray-400 text-sm mt-3">
-              Verifica cuidadosamente el número antes de realizar el pago.
+            <p className="text-gray-400 text-sm mt-4">
+              Mínimo: {formatPrice(MIN_AMOUNT)}
+            </p>
+
+            <p className="text-gray-400 text-sm">
+              Máximo: {formatPrice(MAX_AMOUNT)}
             </p>
           </div>
 
-          <h2 className="text-xl font-bold mb-4">
-            1. Selecciona el monto
+          {/* MONTO */}
+          <h2 className="text-xl font-bold mb-3">
+            ¿Cuánto deseas recargar?
           </h2>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8">
-            {AMOUNTS.map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setAmount(value)}
-                className={`p-4 rounded-xl font-bold border transition-all ${
-                  amount === value
-                    ? 'bg-blue-600 border-blue-400 text-white'
-                    : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
-                }`}
-              >
-                {formatPrice(value)}
-              </button>
-            ))}
+          <div className="relative mb-3">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">
+              $
+            </span>
+
+            <input
+              type="text"
+              inputMode="numeric"
+              value={amount}
+              onChange={(e) => formatInput(e.target.value)}
+              placeholder="20.000"
+              className="w-full bg-gray-950 border border-gray-700 focus:border-blue-500 outline-none rounded-xl py-4 pl-10 pr-4 text-2xl font-bold text-white"
+            />
           </div>
 
+          <p className="text-gray-500 text-sm mb-8">
+            Puedes recargar desde {formatPrice(MIN_AMOUNT)} hasta{' '}
+            {formatPrice(MAX_AMOUNT)}.
+          </p>
+
+          {/* COMPROBANTE */}
           <h2 className="text-xl font-bold mb-4">
-            2. Sube el comprobante
+            Comprobante de pago
           </h2>
 
           <label
             htmlFor="proof"
             className="border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all bg-gray-950"
           >
-            <Upload size={40} className="text-blue-400 mb-3" />
+            <Upload
+              size={40}
+              className="text-blue-400 mb-3"
+            />
 
             {file ? (
               <>
                 <p className="text-white font-semibold text-center">
                   {file.name}
                 </p>
-                <p className="text-gray-400 text-sm mt-1">
+
+                <p className="text-green-400 text-sm mt-1">
                   Comprobante seleccionado
                 </p>
               </>
             ) : (
               <>
                 <p className="text-white font-semibold">
-                  Seleccionar comprobante
+                  Subir comprobante
                 </p>
+
                 <p className="text-gray-500 text-sm mt-1">
-                  JPG, PNG o imagen similar — máximo 5 MB
+                  JPG, PNG — máximo 5 MB
                 </p>
               </>
             )}
@@ -296,26 +354,35 @@ function TopupPage() {
             />
           </label>
 
+          {/* ERRORES */}
           {error && (
             <div className="mt-5 bg-red-900/30 border border-red-800 rounded-xl p-4 flex gap-3">
               <AlertCircle
                 className="text-red-400 shrink-0"
                 size={22}
               />
-              <p className="text-red-300">{error}</p>
+
+              <p className="text-red-300">
+                {error}
+              </p>
             </div>
           )}
 
+          {/* ÉXITO */}
           {message && (
             <div className="mt-5 bg-green-900/30 border border-green-800 rounded-xl p-4 flex gap-3">
               <CheckCircle
                 className="text-green-400 shrink-0"
                 size={22}
               />
-              <p className="text-green-300">{message}</p>
+
+              <p className="text-green-300">
+                {message}
+              </p>
             </div>
           )}
 
+          {/* BOTÓN */}
           <button
             type="button"
             onClick={submitTopup}
@@ -323,8 +390,8 @@ function TopupPage() {
             className="w-full mt-8 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white py-4 rounded-xl font-bold text-lg transition-all"
           >
             {sending
-              ? 'Enviando recarga...'
-              : 'Enviar comprobante'}
+              ? 'Enviando solicitud...'
+              : 'Recargar saldo'}
           </button>
 
           <div className="mt-6 bg-yellow-900/20 border border-yellow-800/40 rounded-xl p-4 flex gap-3">
@@ -334,8 +401,9 @@ function TopupPage() {
             />
 
             <p className="text-yellow-200 text-sm">
-              Tu saldo no se agregará inmediatamente. El administrador
-              verificará el comprobante y aprobará la recarga.
+              Después de realizar el pago, sube el comprobante.
+              El saldo será agregado cuando el administrador
+              apruebe la recarga.
             </p>
           </div>
         </div>
