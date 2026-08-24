@@ -74,6 +74,7 @@ function Home() {
   const [user, setUser] = useState<any>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [checkingUser, setCheckingUser] = useState(true)
+  const [balance, setBalance] = useState<number>(0)
 
   useEffect(() => {
     loadProducts()
@@ -102,13 +103,15 @@ function Home() {
     if (user) {
       const { data: profile } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, balance')
         .eq('id', user.id)
         .single()
 
       setIsAdmin(profile?.role === 'admin')
+      setBalance(Number(profile?.balance ?? 0))
     } else {
       setIsAdmin(false)
+      setBalance(0)
     }
 
     setCheckingUser(false)
@@ -118,10 +121,13 @@ function Home() {
     await supabase.auth.signOut()
     setUser(null)
     setIsAdmin(false)
+    setBalance(0)
     navigate({ to: '/' })
   }
 
   async function loadProducts() {
+    setLoadingProducts(true)
+
     const { data, error } = await supabase
       .from('products')
       .select(
@@ -161,27 +167,28 @@ function Home() {
         return
       }
 
-      const { error } = await supabase
-        .from('orders')
-        .insert({
-          user_id: currentUser.id,
-          product_id: product.id,
-          product_name: product.name,
-          price: product.price,
-          status: 'pendiente',
-        })
+      const { data, error } = await supabase.rpc(
+        'create_order',
+        {
+          p_product_id: product.id,
+        },
+      )
 
       if (error) {
         console.error(error)
-        alert(
-          'No se pudo crear el pedido: ' + error.message,
-        )
+        alert(error.message || 'No se pudo crear el pedido.')
         return
       }
 
       alert(
-        `Pedido creado correctamente.\n\nServicio: ${product.name}\nPrecio: ${formatPrice(product.price)}`,
+        `Pedido creado correctamente.\n\nServicio: ${
+          data.product_name
+        }\nPrecio: ${formatPrice(
+          Number(data.price),
+        )}\n\nNúmero de pedido: #${data.order_id}`,
       )
+
+      await checkUser()
 
       window.open(
         waLink(product.name),
@@ -198,7 +205,6 @@ function Home() {
 
       {/* HEADER */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-gray-800">
-
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
 
           <Link
@@ -209,7 +215,6 @@ function Home() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-8">
-
             <a
               href="#"
               className="text-white hover:text-blue-400 transition-colors font-medium"
@@ -237,7 +242,6 @@ function Home() {
             >
               Contacto
             </a>
-
           </nav>
 
           <div className="flex items-center gap-3">
@@ -263,13 +267,25 @@ function Home() {
             )}
 
             {!checkingUser && user && !isAdmin && (
-              <button
-                onClick={() => navigate({ to: '/dashboard' })}
+              <Link
+                to="/orders"
                 className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm flex items-center gap-2"
               >
                 <User size={18} />
-                Mi Cuenta
-              </button>
+                Mis Pedidos
+              </Link>
+            )}
+
+            {!checkingUser && user && (
+              <div className="hidden sm:block text-right">
+                <p className="text-xs text-gray-400">
+                  Saldo
+                </p>
+
+                <p className="text-green-400 font-bold">
+                  {formatPrice(balance)}
+                </p>
+              </div>
             )}
 
             {!checkingUser && user && (
