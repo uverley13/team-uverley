@@ -5,6 +5,7 @@ import {
   List,
   CreditCard,
   Grid,
+  Package,
   LogOut,
   MessageCircle,
 } from 'lucide-react'
@@ -15,7 +16,7 @@ export const Route = createFileRoute('/dashboard')({
 })
 
 const WA_BASE =
-  'https://wa.me/+57TU-NUMERO?text=Hola%20Team%20Uverley%2C%20quiero%20hacer%20un%20pedido'
+  'https://wa.me/573172329884?text=Hola%20Team%20Uverley%2C%20quiero%20hacer%20un%20pedido'
 
 function DashboardPage() {
   const navigate = useNavigate()
@@ -106,6 +107,13 @@ function DashboardPage() {
       external: false,
       color: 'bg-purple-700 hover:bg-purple-600',
     },
+    {
+      label: 'Administrar Productos',
+      icon: <Package size={28} />,
+      href: '/products',
+      external: false,
+      color: 'bg-orange-600 hover:bg-orange-700',
+    },
   ]
 
   return (
@@ -118,6 +126,7 @@ function DashboardPage() {
           >
             Team Uverley
           </Link>
+
           <p className="text-gray-400 text-sm mt-1">
             Panel de administración
           </p>
@@ -132,11 +141,12 @@ function DashboardPage() {
         </button>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-12">
+      <main className="max-w-6xl mx-auto px-4 py-12">
         <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-800/50 rounded-2xl p-8 mb-10 text-center">
           <h1 className="text-3xl font-black text-white mb-2">
             ¡Bienvenido al panel!
           </h1>
+
           <p className="text-gray-300 text-lg">
             Administración de Team Uverley
           </p>
@@ -146,7 +156,7 @@ function DashboardPage() {
           Acciones Rápidas
         </h2>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
           {quickActions.map((action) =>
             action.external ? (
               <a
