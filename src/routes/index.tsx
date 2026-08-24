@@ -11,6 +11,7 @@ import {
   User,
   LogOut,
   Settings,
+  Wallet,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
@@ -74,7 +75,6 @@ function Home() {
   const [user, setUser] = useState<any>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [checkingUser, setCheckingUser] = useState(true)
-  const [balance, setBalance] = useState<number>(0)
 
   useEffect(() => {
     loadProducts()
@@ -103,15 +103,13 @@ function Home() {
     if (user) {
       const { data: profile } = await supabase
         .from('profiles')
-        .select('role, balance')
+        .select('role')
         .eq('id', user.id)
         .single()
 
       setIsAdmin(profile?.role === 'admin')
-      setBalance(Number(profile?.balance ?? 0))
     } else {
       setIsAdmin(false)
-      setBalance(0)
     }
 
     setCheckingUser(false)
@@ -121,7 +119,6 @@ function Home() {
     await supabase.auth.signOut()
     setUser(null)
     setIsAdmin(false)
-    setBalance(0)
     navigate({ to: '/' })
   }
 
@@ -167,28 +164,65 @@ function Home() {
         return
       }
 
-      const { data, error } = await supabase.rpc(
-        'create_order',
-        {
-          p_product_id: product.id,
-        },
-      )
+      const { data: profile, error: profileError } =
+        await supabase
+          .from('profiles')
+          .select('balance')
+          .eq('id', currentUser.id)
+          .single()
+
+      if (profileError) {
+        alert(
+          'No se pudo consultar tu saldo: ' +
+            profileError.message,
+        )
+        return
+      }
+
+      const balance = Number(profile?.balance ?? 0)
+
+      if (balance < Number(product.price)) {
+        const faltante = Number(product.price) - balance
+
+        const confirmar = window.confirm(
+          `Saldo insuficiente.\n\n` +
+            `Precio: ${formatPrice(Number(product.price))}\n` +
+            `Saldo disponible: ${formatPrice(balance)}\n` +
+            `Te faltan: ${formatPrice(faltante)}\n\n` +
+            `¿Quieres recargar saldo?`,
+        )
+
+        if (confirmar) {
+          navigate({ to: '/topup' })
+        }
+
+        return
+      }
+
+      const { error } = await supabase
+        .from('orders')
+        .insert({
+          user_id: currentUser.id,
+          product_id: product.id,
+          product_name: product.name,
+          price: product.price,
+          status: 'pendiente',
+        })
 
       if (error) {
         console.error(error)
-        alert(error.message || 'No se pudo crear el pedido.')
+
+        alert(
+          'No se pudo crear el pedido: ' +
+            error.message,
+        )
+
         return
       }
 
       alert(
-        `Pedido creado correctamente.\n\nServicio: ${
-          data.product_name
-        }\nPrecio: ${formatPrice(
-          Number(data.price),
-        )}\n\nNúmero de pedido: #${data.order_id}`,
+        `Pedido creado correctamente.\n\nServicio: ${product.name}\nPrecio: ${formatPrice(product.price)}\n\nEl pedido quedó registrado correctamente.`,
       )
-
-      await checkUser()
 
       window.open(
         waLink(product.name),
@@ -202,11 +236,10 @@ function Home() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-
       {/* HEADER */}
+
       <header className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
-
           <Link
             to="/"
             className="text-3xl font-black tracking-tight bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent shrink-0"
@@ -244,12 +277,11 @@ function Home() {
             </a>
           </nav>
 
-          <div className="flex items-center gap-3">
-
+          <div className="flex items-center gap-2">
             {!checkingUser && !user && (
               <Link
                 to="/login"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm flex items-center gap-2"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm flex items-center gap-2"
               >
                 <User size={18} />
                 Iniciar Sesión
@@ -267,25 +299,23 @@ function Home() {
             )}
 
             {!checkingUser && user && !isAdmin && (
-              <Link
-                to="/orders"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm flex items-center gap-2"
-              >
-                <User size={18} />
-                Mis Pedidos
-              </Link>
-            )}
+              <>
+                <Link
+                  to="/topup"
+                  className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm flex items-center gap-2"
+                >
+                  <Wallet size={18} />
+                  Recargar saldo
+                </Link>
 
-            {!checkingUser && user && (
-              <div className="hidden sm:block text-right">
-                <p className="text-xs text-gray-400">
-                  Saldo
-                </p>
-
-                <p className="text-green-400 font-bold">
-                  {formatPrice(balance)}
-                </p>
-              </div>
+                <Link
+                  to="/dashboard"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm flex items-center gap-2"
+                >
+                  <User size={18} />
+                  Mi Cuenta
+                </Link>
+              </>
             )}
 
             {!checkingUser && user && (
@@ -307,16 +337,14 @@ function Home() {
             >
               <MessageCircle size={20} />
             </a>
-
           </div>
         </div>
       </header>
 
       {/* HERO */}
+
       <section className="min-h-screen flex items-center justify-center px-4 pt-24 bg-gradient-to-b from-black via-gray-950 to-black">
-
         <div className="max-w-5xl mx-auto text-center">
-
           <p className="text-blue-400 font-bold tracking-[0.3em] uppercase mb-4">
             Soluciones digitales
           </p>
@@ -336,7 +364,6 @@ function Home() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-
             <a
               href="#servicios"
               className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-5 rounded-xl text-xl font-bold transition-all hover:scale-105"
@@ -353,16 +380,14 @@ function Home() {
               <MessageCircle size={24} />
               Contactar por WhatsApp
             </a>
-
           </div>
         </div>
       </section>
 
       {/* SERVICIOS */}
+
       <section id="servicios" className="py-20 px-4">
-
         <div className="max-w-7xl mx-auto">
-
           <h2 className="text-4xl md:text-5xl font-black text-center mb-4 text-white">
             Nuestros Servicios
           </h2>
@@ -372,32 +397,24 @@ function Home() {
           </p>
 
           {loadingProducts ? (
-
             <div className="text-center py-16">
               <p className="text-gray-400 text-lg">
                 Cargando servicios...
               </p>
             </div>
-
           ) : products.length === 0 ? (
-
             <div className="text-center py-16 bg-gray-900/70 border border-gray-800 rounded-2xl">
               <p className="text-gray-400 text-lg">
                 Actualmente no hay servicios disponibles.
               </p>
             </div>
-
           ) : (
-
             <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-
               {products.map((product) => (
-
                 <div
                   key={product.id}
                   className="bg-gray-900/70 border border-gray-800 rounded-2xl overflow-hidden flex flex-col hover:border-blue-500 hover:shadow-2xl hover:shadow-blue-900/40 transition-all hover:scale-105"
                 >
-
                   {product.image_url ? (
                     <img
                       src={product.image_url}
@@ -414,7 +431,6 @@ function Home() {
                   )}
 
                   <div className="p-6 flex flex-col flex-1">
-
                     <div className="mb-4">
                       <CheckCircle
                         size={28}
@@ -431,7 +447,7 @@ function Home() {
                     </p>
 
                     <p className="text-2xl font-black text-green-400 mb-5">
-                      {formatPrice(product.price)}
+                      {formatPrice(Number(product.price))}
                     </p>
 
                     <button
@@ -443,40 +459,31 @@ function Home() {
                         ? 'Creando pedido...'
                         : 'Pedir Servicio'}
                     </button>
-
                   </div>
                 </div>
-
               ))}
-
             </div>
-
           )}
-
         </div>
       </section>
 
       {/* POR QUÉ ELEGIRNOS */}
+
       <section
         id="precios"
         className="py-20 px-4 bg-gray-950/50"
       >
-
         <div className="max-w-5xl mx-auto">
-
           <h2 className="text-4xl font-black text-center mb-14 text-white">
             ¿Por qué elegirnos?
           </h2>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
-
             {whyUs.map((item) => (
-
               <div
                 key={item.title}
                 className="bg-gray-900/70 border border-gray-800 rounded-2xl p-6 text-center hover:border-blue-500 hover:shadow-xl transition-all hover:scale-105"
               >
-
                 <div className="flex justify-center mb-4">
                   {item.icon}
                 </div>
@@ -488,21 +495,18 @@ function Home() {
                 <p className="text-gray-400 text-sm">
                   {item.desc}
                 </p>
-
               </div>
-
             ))}
-
           </div>
         </div>
       </section>
 
       {/* CONTACTO */}
+
       <section
         id="contacto"
         className="py-24 px-4 bg-gradient-to-b from-gray-950 to-black text-center"
       >
-
         <h2 className="text-4xl md:text-5xl font-black text-white mb-6">
           ¿Necesitas ayuda?
         </h2>
@@ -520,18 +524,15 @@ function Home() {
           <MessageCircle size={32} />
           Escribir por WhatsApp
         </a>
-
       </section>
 
       {/* FOOTER */}
-      <footer className="bg-gray-900 py-10 px-4 text-center border-t border-gray-800">
 
+      <footer className="bg-gray-900 py-10 px-4 text-center border-t border-gray-800">
         <p className="text-gray-400 text-sm">
           © 2026 Servidor Uverley | WhatsApp +57 317 232 9884
         </p>
-
       </footer>
-
     </div>
   )
 }
