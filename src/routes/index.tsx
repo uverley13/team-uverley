@@ -1,7 +1,6 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import {
-  Lock,
   Smartphone,
   CheckCircle,
   Zap,
@@ -17,7 +16,7 @@ export const Route = createFileRoute('/')({
 })
 
 type Product = {
-  id: string
+  id: number
   name: string
   description: string | null
   price: number
@@ -27,7 +26,9 @@ type Product = {
 
 const WA_NUMBER = '573172329884'
 
-const WA_BASE = `https://wa.me/${WA_NUMBER}?text=Hola%20Team%20Uverley%2C%20quiero%20información%20sobre%20sus%20servicios`
+const WA_BASE = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(
+  'Hola Team Uverley, quiero información sobre sus servicios',
+)}`
 
 function waLink(service?: string) {
   const text = service
@@ -46,7 +47,7 @@ const whyUs = [
   {
     icon: <Zap size={32} className="text-yellow-400" />,
     title: 'Entrega Rápida',
-    desc: 'Atención rápida según el servicio solicitado.',
+    desc: 'Atención rápida según el servicio.',
   },
   {
     icon: <DollarSign size={32} className="text-green-400" />,
@@ -61,8 +62,11 @@ const whyUs = [
 ]
 
 function Home() {
+  const navigate = useNavigate()
+
   const [products, setProducts] = useState<Product[]>([])
   const [loadingProducts, setLoadingProducts] = useState(true)
+  const [orderingId, setOrderingId] = useState<number | null>(null)
 
   useEffect(() => {
     loadProducts()
@@ -72,7 +76,7 @@ function Home() {
     const { data, error } = await supabase
       .from('products')
       .select(
-        'id, name, description, price, image_url, active'
+        'id, name, description, price, image_url, active',
       )
       .eq('active', true)
       .order('created_at', { ascending: false })
@@ -94,10 +98,57 @@ function Home() {
     }).format(price)
   }
 
+  async function createOrder(product: Product) {
+    setOrderingId(product.id)
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        alert('Debes iniciar sesión para realizar un pedido.')
+        navigate({ to: '/login' })
+        return
+      }
+
+      const { error } = await supabase
+        .from('orders')
+        .insert({
+          user_id: user.id,
+          product_id: product.id,
+          product_name: product.name,
+          price: product.price,
+          status: 'pendiente',
+        })
+
+      if (error) {
+        console.error(error)
+        alert(
+          'No se pudo crear el pedido: ' + error.message,
+        )
+        return
+      }
+
+      alert(
+        `Pedido creado correctamente.\n\nServicio: ${product.name}\nPrecio: ${formatPrice(product.price)}`,
+      )
+
+      // Abrir WhatsApp después de crear el pedido
+      window.open(
+        waLink(product.name),
+        '_blank',
+        'noopener,noreferrer',
+      )
+    } finally {
+      setOrderingId(null)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-black text-white">
 
-      {/* Header */}
+      {/* HEADER */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
 
@@ -139,7 +190,6 @@ function Home() {
           </nav>
 
           <div className="flex items-center gap-3">
-
             <Link
               to="/login"
               className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-all hover:scale-105 text-sm"
@@ -156,14 +206,12 @@ function Home() {
             >
               <MessageCircle size={20} />
             </a>
-
           </div>
         </div>
       </header>
 
-      {/* Hero */}
+      {/* HERO */}
       <section className="min-h-screen flex items-center justify-center px-4 pt-24 bg-gradient-to-b from-black via-gray-950 to-black">
-
         <div className="max-w-5xl mx-auto text-center">
 
           <h1 className="text-6xl md:text-8xl font-black mb-6 bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent leading-tight">
@@ -200,11 +248,8 @@ function Home() {
         </div>
       </section>
 
-      {/* Services */}
-      <section
-        id="servicios"
-        className="py-20 px-4"
-      >
+      {/* SERVICIOS */}
+      <section id="servicios" className="py-20 px-4">
         <div className="max-w-7xl mx-auto">
 
           <h2 className="text-4xl md:text-5xl font-black text-center mb-4 text-white">
@@ -212,7 +257,7 @@ function Home() {
           </h2>
 
           <p className="text-gray-400 text-center text-lg mb-14 max-w-2xl mx-auto">
-            Elige el servicio que necesitas y contáctanos.
+            Elige el servicio que necesitas y realiza tu pedido.
           </p>
 
           {loadingProducts ? (
@@ -243,22 +288,18 @@ function Home() {
                 >
 
                   {product.image_url ? (
-
                     <img
                       src={product.image_url}
                       alt={product.name}
                       className="w-full h-52 object-cover"
                     />
-
                   ) : (
-
                     <div className="w-full h-52 bg-gray-800 flex items-center justify-center">
                       <Smartphone
                         size={60}
                         className="text-gray-600"
                       />
                     </div>
-
                   )}
 
                   <div className="p-6 flex flex-col flex-1">
@@ -282,14 +323,15 @@ function Home() {
                       {formatPrice(product.price)}
                     </p>
 
-                    <a
-                      href={waLink(product.name)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-3 text-sm font-semibold text-center transition-all"
+                    <button
+                      onClick={() => createOrder(product)}
+                      disabled={orderingId === product.id}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg px-4 py-3 text-sm font-semibold text-center transition-all"
                     >
-                      Pedir Servicio
-                    </a>
+                      {orderingId === product.id
+                        ? 'Creando pedido...'
+                        : 'Pedir Servicio'}
+                    </button>
 
                   </div>
                 </div>
@@ -303,7 +345,7 @@ function Home() {
         </div>
       </section>
 
-      {/* Why Us */}
+      {/* POR QUÉ ELEGIRNOS */}
       <section
         id="precios"
         className="py-20 px-4 bg-gray-950/50"
@@ -343,7 +385,7 @@ function Home() {
         </div>
       </section>
 
-      {/* CTA */}
+      {/* CONTACTO */}
       <section
         id="contacto"
         className="py-24 px-4 bg-gradient-to-b from-gray-950 to-black text-center"
@@ -369,13 +411,11 @@ function Home() {
 
       </section>
 
-      {/* Footer */}
+      {/* FOOTER */}
       <footer className="bg-gray-900 py-10 px-4 text-center border-t border-gray-800">
-
         <p className="text-gray-400 text-sm">
           © 2026 Team Uverley | WhatsApp +57 317 232 9884
         </p>
-
       </footer>
 
     </div>
