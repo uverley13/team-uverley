@@ -772,28 +772,27 @@ async function handleApproveTopup(topupId: number, userId: string, amount: numbe
                   imágenes.
                 </p>
               </Link>
-            </div>
-          </>
-        )}
-{activeSection === 'inicio' && (
-  <div className="mb-8">
-    <button
-      onClick={() => setActiveSection('recargas')}
-      className="w-full bg-gray-900 border border-gray-800 hover:border-blue-500 p-6 rounded-2xl flex items-center justify-between transition-colors"
-    >
-      <div>
-        <h2 className="text-xl font-bold">Aprobar Recargas Pendientes</h2>
-        <p className="text-gray-400 text-sm">Revisa los comprobantes enviados por los usuarios.</p>
-      </div>
-      <span className="bg-blue-600 text-white font-bold px-3 py-1 rounded-full text-sm">
-        {topups.length}
-      </span>
-    </button>
-  </div>
-)}
+          </div>
 
-{activeSection === 'recargas' && (
-  <>
+          <div className="mt-8">
+            <button
+              onClick={() => setActiveSection('recargas')}
+              className="w-full bg-gray-900 border border-gray-800 hover:border-blue-500 p-6 rounded-2xl flex items-center justify-between transition-colors text-left"
+            >
+              <div>
+                <h2 className="text-xl font-bold">Aprobar Recargas Pendientes</h2>
+                <p className="text-gray-400 text-sm">Revisa los comprobantes enviados por los usuarios.</p>
+              </div>
+              <span className="bg-blue-600 text-white font-bold px-3 py-1 rounded-full text-sm">
+                {topups.length}
+              </span>
+            </button>
+          </div>
+        </>
+      </>
+        )}
+
+        {activeSection === 'recargas' && (
     <div className="flex items-center gap-3 mb-6">
       <button onClick={() => setActiveSection('inicio')} className="p-2 bg-gray-800 rounded-lg">
         <ArrowLeft size={20} />
