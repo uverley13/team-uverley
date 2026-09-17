@@ -788,7 +788,6 @@ async function handleApproveTopup(topupId: number, userId: string, amount: numbe
               </span>
             </button>
           </div>
-        </>
       </>
         )}
 
