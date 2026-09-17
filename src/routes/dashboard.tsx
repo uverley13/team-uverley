@@ -44,7 +44,14 @@ type Order = {
   status: string
   created_at: string
 }
-
+type Topup = {
+  id: number
+  user_id: string
+  amount: number
+  status: string
+  proof_url: string | null
+  created_at: string
+}
 const WA_NUMBER = '573172329884'
 
 function formatPrice(value: number) {
@@ -73,10 +80,9 @@ function DashboardPage() {
   const [description, setDescription] = useState('')
   const [processing, setProcessing] = useState(false)
   const [changingOrder, setChangingOrder] = useState<number | null>(null)
-
+const [topups, setTopups] = useState<Topup[]>([])
   const [activeSection, setActiveSection] =
-    useState<'inicio' | 'clientes' | 'movimientos' | 'pedidos'>(
-      'inicio',
+    useState<'inicio' | 'clientes' | 'movimientos' | 'pedidos' | 'recargas'>(
     )
 
   useEffect(() => {
@@ -128,12 +134,21 @@ function DashboardPage() {
 
   async function loadData() {
     try {
-      setRefreshing(true)
+async function loadTopups() {
+  const { data } = await supabase
+    .from('topups')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (data) setTopups(data)
+}
+   setRefreshing(true)
 
-      await Promise.all([
-        loadClients(),
-        loadTransactions(),
-        loadOrders(),
+    await Promise.all([
+      loadClients(),
+      loadTransactions(),
+      loadOrders(),
+      loadTopups(),
+    ])   
       ])
     } finally {
       setRefreshing(false)
