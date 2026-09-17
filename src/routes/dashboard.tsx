@@ -474,7 +474,35 @@ async function loadTopups() {
     await supabase.auth.signOut()
     navigate({ to: '/' })
   }
+async function handleApproveTopup(topupId: number, userId: string, amount: number) {
+    if (!confirm('¿Deseas aprobar esta recarga y sumar el saldo al usuario?')) return
 
+    try {
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('balance')
+        .eq('id', userId)
+        .single()
+
+      const currentBalance = userProfile?.balance || 0
+      const newBalance = currentBalance + amount
+
+      await supabase
+        .from('profiles')
+        .update({ balance: newBalance })
+        .eq('id', userId)
+
+      await supabase
+        .from('topups')
+        .delete()
+        .eq('id', topupId)
+
+      alert('Recarga aprobada y saldo acreditado con éxito.')
+      await loadData()
+    } catch (error) {
+      alert('Ocurrió un error al procesar la recarga.')
+    }
+}
   function clientEmail(userId: string) {
     const client = clients.find(
       (item) => item.id === userId,
@@ -747,7 +775,65 @@ async function loadTopups() {
             </div>
           </>
         )}
+{activeSection === 'inicio' && (
+  <div className="mb-8">
+    <button
+      onClick={() => setActiveSection('recargas')}
+      className="w-full bg-gray-900 border border-gray-800 hover:border-blue-500 p-6 rounded-2xl flex items-center justify-between transition-colors"
+    >
+      <div>
+        <h2 className="text-xl font-bold">Aprobar Recargas Pendientes</h2>
+        <p className="text-gray-400 text-sm">Revisa los comprobantes enviados por los usuarios.</p>
+      </div>
+      <span className="bg-blue-600 text-white font-bold px-3 py-1 rounded-full text-sm">
+        {topups.length}
+      </span>
+    </button>
+  </div>
+)}
 
+{activeSection === 'recargas' && (
+  <>
+    <div className="flex items-center gap-3 mb-6">
+      <button onClick={() => setActiveSection('inicio')} className="p-2 bg-gray-800 rounded-lg">
+        <ArrowLeft size={20} />
+      </button>
+      <div>
+        <h1 className="text-3xl font-black">Recargas de Usuarios</h1>
+        <p className="text-gray-400">Verifica el comprobante y aprueba los saldos.</p>
+      </div>
+    </div>
+
+    <div className="grid gap-4">
+      {topups.length === 0 ? (
+        <div className="bg-gray-900 border border-gray-800 p-8 rounded-2xl text-center text-gray-400">
+          No hay solicitudes de recarga pendientes.
+        </div>
+      ) : (
+        topups.map((topup) => (
+          <div key={topup.id} className="bg-gray-900 border border-gray-800 rounded-2xl p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <p className="text-sm text-gray-400">Usuario ID: {topup.user_id}</p>
+              <p className="text-2xl font-black text-green-400">{formatPrice(topup.amount)}</p>
+              {topup.proof_url && (
+                <a href={topup.proof_url} target="_blank" rel="noreferrer" className="text-blue-400 underline text-sm mt-1 inline-block">
+                  Ver comprobante de pago
+                </a>
+              )}
+            </div>
+            <button
+              onClick={() => handleApproveTopup(topup.id, topup.user_id, topup.amount)}
+              className="bg-green-600 hover:bg-green-700 font-bold px-5 py-3 rounded-lg text-white"
+            >
+              Aprobar Recarga
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  </>
+)}
+        
         {activeSection === 'clientes' && (
           <>
             <div className="flex items-center gap-3 mb-6">
