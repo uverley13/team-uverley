@@ -736,8 +736,7 @@ async function handleApproveTopup(topupId: number, userId: string, amount: numbe
                   {transactions.length}
                 </p>
               </div>
-
-            <div className="grid md:grid-cols-2 gap-5 mt-8">
+              className="grid md:grid-cols-2 gap-5 mt-8">
               <button
                 onClick={() =>
                   setActiveSection('clientes')
