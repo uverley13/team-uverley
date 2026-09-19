@@ -1,1185 +1,131 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import {
-  Users,
-  Wallet,
-  Plus,
-  Minus,
-  History,
-  Package,
-  ShoppingCart,
-  LogOut,
-  MessageCircle,
-  RefreshCw,
-  ArrowLeft,
-} from 'lucide-react'
+import { ArrowLeft, History, LogOut, MessageCircle, Package, Plus, RefreshCw, ShoppingCart, Users, Wallet } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
-export const Route = createFileRoute('/dashboard')({
-  component: DashboardPage,
-})
+export const Route = createFileRoute('/dashboard')({ component: DashboardPage })
 
-type Client = {
-  id: string
-  email: string | null
-  balance: number
-  role: string
-}
+type Client = { id: string; email: string | null; balance: number; role: string }
+type Transaction = { id: number; user_id: string; amount: number; type: string; description: string | null; created_at: string }
+type Order = { id: number; user_id: string; product_name: string; price: number; status: string; created_at: string }
+type Topup = { id: number; user_id: string; amount: number; status: string; proof_url: string | null; created_at: string }
+type Section = 'inicio' | 'clientes' | 'movimientos' | 'pedidos' | 'recargas'
 
-type Transaction = {
-  id: number
-  user_id: string
-  amount: number
-  type: string
-  description: string | null
-  admin_id: string | null
-  created_at: string
-}
-
-type Order = {
-  id: number
-  user_id: string
-  product_name: string
-  price: number
-  status: string
-  created_at: string
-}
-type Topup = {
-  id: number
-  user_id: string
-  amount: number
-  status: string
-  proof_url: string | null
-  created_at: string
-}
 const WA_NUMBER = '573172329884'
 
 function formatPrice(value: number) {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(Number(value || 0))
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(value || 0))
 }
 
 function DashboardPage() {
   const navigate = useNavigate()
-
   const [loading, setLoading] = useState(true)
   const [authorized, setAuthorized] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-
+  const [section, setSection] = useState<Section>('inicio')
   const [clients, setClients] = useState<Client[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [orders, setOrders] = useState<Order[]>([])
-
-  const [selectedClient, setSelectedClient] =
-    useState<Client | null>(null)
-
+  const [topups, setTopups] = useState<Topup[]>([])
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [processing, setProcessing] = useState(false)
   const [changingOrder, setChangingOrder] = useState<number | null>(null)
-const [topups, setTopups] = useState<Topup[]>([])
-  const [activeSection, setActiveSection] =
-    useState<'inicio' | 'clientes' | 'movimientos' | 'pedidos' | 'recargas'>(
-    )
 
-  useEffect(() => {
-    checkAdmin()
-  }, [])
+  useEffect(() => { void checkAdmin() }, [])
 
   async function checkAdmin() {
     try {
-      setLoading(true)
-
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser()
-
-      if (userError || !user) {
-        navigate({ to: '/login' })
-        return
-      }
-
-      const { data: profile, error: profileError } =
-        await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single()
-
-      if (profileError || profile?.role !== 'admin') {
-        await supabase.auth.signOut()
-        navigate({ to: '/' })
-        return
-      }
-
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) { navigate({ to: '/login' }); return }
+      const { data: profile, error } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+      if (error || profile?.role !== 'admin') { await supabase.auth.signOut(); navigate({ to: '/' }); return }
       setAuthorized(true)
       await loadData()
     } catch (error) {
-      console.error(
-        'Error verificando administrador:',
-        error,
-      )
-
-      alert(
-        'No se pudo verificar el acceso al panel.',
-      )
-    } finally {
-      setLoading(false)
-    }
+      console.error('Error verificando administrador:', error)
+      alert('No se pudo verificar el acceso al panel.')
+    } finally { setLoading(false) }
   }
 
   async function loadData() {
+    setRefreshing(true)
     try {
-async function loadTopups() {
-  const { data } = await supabase
-    .from('topups')
-    .select('*')
-    .order('created_at', { ascending: false })
-  if (data) setTopups(data)
-}
-   setRefreshing(true)
-
-    await Promise.all([
-      loadClients(),
-      loadTransactions(),
-      loadOrders(),
-      loadTopups(),
-    ])   
+      const [clientsResult, transactionsResult, ordersResult, topupsResult] = await Promise.all([
+        supabase.from('profiles').select('id, email, balance, role').order('role', { ascending: true }),
+        supabase.from('balance_transactions').select('id, user_id, amount, type, description, created_at').order('created_at', { ascending: false }).limit(100),
+        supabase.from('orders').select('id, user_id, product_name, price, status, created_at').order('created_at', { ascending: false }).limit(100),
+        supabase.from('topups').select('id, user_id, amount, status, proof_url, created_at').eq('status', 'pending').order('created_at', { ascending: false }),
       ])
-    } finally {
-      setRefreshing(false)
-    }
+      if (clientsResult.error) throw clientsResult.error
+      setClients((clientsResult.data ?? []) as Client[])
+      if (!transactionsResult.error) setTransactions((transactionsResult.data ?? []) as Transaction[])
+      if (!ordersResult.error) setOrders((ordersResult.data ?? []) as Order[])
+      if (!topupsResult.error) setTopups((topupsResult.data ?? []) as Topup[])
+    } catch (error) { console.error('Error cargando datos:', error); alert('No se pudieron cargar todos los datos.') }
+    finally { setRefreshing(false) }
   }
 
-  async function loadClients() {
-    try {
-      /*
-       * IMPORTANTE:
-       * Esta consulta mantiene el funcionamiento
-       * de tu versión anterior.
-       */
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, email, balance, role')
-        .order('role', { ascending: true })
-
-      if (error) {
-        console.error(
-          'Error cargando clientes:',
-          error,
-        )
-
-        alert(
-          'No se pudieron cargar los clientes:\n' +
-            error.message,
-        )
-
-        return
-      }
-
-      setClients((data ?? []) as Client[])
-    } catch (error) {
-      console.error(
-        'Error inesperado cargando clientes:',
-        error,
-      )
-    }
-  }
-
-  async function loadTransactions() {
-    try {
-      const { data, error } = await supabase
-        .from('balance_transactions')
-        .select(
-          'id, user_id, amount, type, description, admin_id, created_at',
-        )
-        .order('created_at', { ascending: false })
-        .limit(100)
-
-      if (error) {
-        console.error(
-          'Error cargando movimientos:',
-          error,
-        )
-        return
-      }
-
-      setTransactions(
-        (data ?? []) as Transaction[],
-      )
-    } catch (error) {
-      console.error(
-        'Error inesperado cargando movimientos:',
-        error,
-      )
-    }
-  }
-
-  async function loadOrders() {
-    try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select(
-          'id, user_id, product_name, price, status, created_at',
-        )
-        .order('created_at', { ascending: false })
-        .limit(100)
-
-      if (error) {
-        console.error(
-          'Error cargando pedidos:',
-          error,
-        )
-        return
-      }
-
-      setOrders((data ?? []) as Order[])
-    } catch (error) {
-      console.error(
-        'Error inesperado cargando pedidos:',
-        error,
-      )
-    }
-  }
-
-  async function changeBalance(
-    type: 'recarga' | 'descuento',
-  ) {
-    if (!selectedClient) {
-      alert('Selecciona primero un cliente.')
-      return
-    }
-
-    const numericAmount = Number(
-      amount.replace(/[^\d]/g, ''),
-    )
-
-    if (!numericAmount || numericAmount <= 0) {
-      alert('Escribe un monto válido.')
-      return
-    }
-
-    if (numericAmount > 2000000) {
-      alert(
-        'El monto máximo permitido es $2.000.000 COP.',
-      )
-      return
-    }
-
-    if (
-      type === 'recarga' &&
-      numericAmount < 20000
-    ) {
-      alert(
-        'La recarga mínima es de $20.000 COP.',
-      )
-      return
-    }
-
-    if (
-      type === 'descuento' &&
-      numericAmount > Number(selectedClient.balance)
-    ) {
-      alert(
-        'El descuento no puede ser mayor al saldo disponible.',
-      )
-      return
-    }
-
-    const action =
-      type === 'recarga'
-        ? 'agregar'
-        : 'descontar'
-
-    const confirmation = window.confirm(
-      `¿Confirmas ${action} ${formatPrice(
-        numericAmount,
-      )} ${
-        type === 'recarga'
-          ? 'al saldo'
-          : 'del saldo'
-      } de ${
-        selectedClient.email ??
-        'este cliente'
-      }?`,
-    )
-
-    if (!confirmation) return
-
+  async function changeBalance(type: 'recarga' | 'descuento') {
+    if (!selectedClient) { alert('Selecciona primero un cliente.'); return }
+    const numericAmount = Number(amount.replace(/[^\d]/g, ''))
+    if (!numericAmount || numericAmount <= 0 || numericAmount > 2000000) { alert('Escribe un monto válido entre $1 y $2.000.000 COP.'); return }
+    if (type === 'recarga' && numericAmount < 20000) { alert('La recarga mínima es de $20.000 COP.'); return }
+    if (type === 'descuento' && numericAmount > Number(selectedClient.balance)) { alert('El descuento no puede ser mayor al saldo disponible.'); return }
+    if (!window.confirm(`¿Confirmas ${type === 'recarga' ? 'agregar' : 'descontar'} ${formatPrice(numericAmount)}?`)) return
     setProcessing(true)
-
     try {
-      const { data, error } =
-        await supabase.rpc(
-          'admin_change_balance',
-          {
-            target_user_id: selectedClient.id,
-            change_amount: numericAmount,
-            change_type: type,
-            change_description:
-              description.trim() ||
-              (type === 'recarga'
-                ? 'Recarga manual realizada por administrador'
-                : 'Descuento manual realizado por administrador'),
-          },
-        )
-
-      if (error) {
-        console.error(
-          'Error modificando saldo:',
-          error,
-        )
-
-        alert(
-          'No se pudo modificar el saldo:\n' +
-            error.message,
-        )
-
-        return
-      }
-
-      alert(
-        `Saldo actualizado correctamente.\n\nNuevo saldo: ${formatPrice(
-          Number(data),
-        )}`,
-      )
-
-      setAmount('')
-      setDescription('')
-      setSelectedClient(null)
-
-      await loadData()
-    } catch (error) {
-      console.error(
-        'Error inesperado modificando saldo:',
-        error,
-      )
-
-      alert(
-        'Ocurrió un error al modificar el saldo.',
-      )
-    } finally {
-      setProcessing(false)
-    }
+      const { data, error } = await supabase.rpc('admin_change_balance', { target_user_id: selectedClient.id, change_amount: numericAmount, change_type: type, change_description: description.trim() || (type === 'recarga' ? 'Recarga manual realizada por administrador' : 'Descuento manual realizado por administrador') })
+      if (error) throw error
+      alert(`Saldo actualizado correctamente. Nuevo saldo: ${formatPrice(Number(data))}`)
+      setAmount(''); setDescription(''); setSelectedClient(null); await loadData()
+    } catch (error) { console.error(error); alert(`No se pudo modificar el saldo: ${error instanceof Error ? error.message : 'error desconocido'}`) }
+    finally { setProcessing(false) }
   }
 
-  async function changeOrderStatus(
-    orderId: number,
-    newStatus: string,
-  ) {
-    if (changingOrder !== null) {
-      return
-    }
+  async function approveTopup(topup: Topup) {
+    if (!window.confirm(`¿Aprobar ${formatPrice(topup.amount)} y acreditarlo al usuario?`)) return
+    setProcessing(true)
+    try {
+      // Reutiliza la RPC transaccional de saldos y no hace una lectura/escritura manual del balance.
+      const { error: balanceError } = await supabase.rpc('admin_change_balance', { target_user_id: topup.user_id, change_amount: topup.amount, change_type: 'recarga', change_description: `Recarga aprobada #${topup.id}` })
+      if (balanceError) throw balanceError
+      const { error: topupError } = await supabase.from('topups').update({ status: 'approved' }).eq('id', topup.id).eq('status', 'pending')
+      if (topupError) throw topupError
+      alert('Recarga aprobada y saldo acreditado correctamente.')
+      await loadData()
+    } catch (error) { console.error(error); alert(`No se pudo aprobar la recarga: ${error instanceof Error ? error.message : 'error desconocido'}`) }
+    finally { setProcessing(false) }
+  }
 
-    const order = orders.find(
-      (item) => item.id === orderId,
-    )
-
-    if (!order) {
-      alert('No se encontró el pedido.')
-      return
-    }
-
-    if (order.status === newStatus) {
-      return
-    }
-
-    const statusNames: Record<string, string> = {
-      pendiente: 'Pendiente',
-      procesando: 'Procesando',
-      completado: 'Completado',
-      cancelado: 'Cancelado',
-    }
-
-    const readableStatus =
-      statusNames[newStatus] ?? newStatus
-
-    const confirmation = window.confirm(
-      `¿Cambiar el estado del pedido #${orderId} a "${readableStatus}"?`,
-    )
-
-    if (!confirmation) {
-      return
-    }
-
+  async function changeOrderStatus(orderId: number, status: string) {
+    if (changingOrder !== null) return
     setChangingOrder(orderId)
-
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .update({
-          status: newStatus,
-        })
-        .eq('id', orderId)
-        .select(
-          'id, user_id, product_name, price, status, created_at',
-        )
-        .single()
-
-      if (error) {
-        console.error(
-          'Error cambiando estado:',
-          error,
-        )
-
-        alert(
-          'No se pudo cambiar el estado del pedido.\n\n' +
-            error.message +
-            '\n\nSi aparece "row-level security", hay que corregir la política RLS de la tabla orders en Supabase.',
-        )
-
-        return
-      }
-
-      if (!data) {
-        alert(
-          'No se recibió confirmación de Supabase. El estado no fue actualizado.',
-        )
-        return
-      }
-
-      setOrders((currentOrders) =>
-        currentOrders.map((item) =>
-          item.id === orderId
-            ? {
-                ...item,
-                status: data.status,
-              }
-            : item,
-        ),
-      )
-
-      alert(
-        `Pedido #${orderId} actualizado a "${readableStatus}".`,
-      )
-    } catch (error) {
-      console.error(
-        'Error inesperado cambiando pedido:',
-        error,
-      )
-
-      alert(
-        'Ocurrió un error al cambiar el estado del pedido.',
-      )
-    } finally {
-      setChangingOrder(null)
-    }
+      const { error } = await supabase.from('orders').update({ status }).eq('id', orderId)
+      if (error) throw error
+      setOrders(current => current.map(order => order.id === orderId ? { ...order, status } : order))
+    } catch (error) { console.error(error); alert(`No se pudo cambiar el estado: ${error instanceof Error ? error.message : 'error desconocido'}`) }
+    finally { setChangingOrder(null) }
   }
 
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    navigate({ to: '/' })
-  }
-async function handleApproveTopup(topupId: number, userId: string, amount: number) {
-    if (!confirm('¿Deseas aprobar esta recarga y sumar el saldo al usuario?')) return
-
-    try {
-      const { data: userProfile } = await supabase
-        .from('profiles')
-        .select('balance')
-        .eq('id', userId)
-        .single()
-
-      const currentBalance = userProfile?.balance || 0
-      const newBalance = currentBalance + amount
-
-      await supabase
-        .from('profiles')
-        .update({ balance: newBalance })
-        .eq('id', userId)
-
-      await supabase
-        .from('topups')
-        .delete()
-        .eq('id', topupId)
-
-      alert('Recarga aprobada y saldo acreditado con éxito.')
-      await loadData()
-    } catch (error) {
-      alert('Ocurrió un error al procesar la recarga.')
-    }
-}
-  function clientEmail(userId: string) {
-    const client = clients.find(
-      (item) => item.id === userId,
-    )
-
-    return (
-      client?.email ??
-      'Usuario ' + userId.slice(0, 12) + '...'
-    )
-  }
-
-  function statusClass(status: string) {
-    switch (status) {
-      case 'completado':
-        return 'bg-green-600/20 text-green-400'
-
-      case 'procesando':
-        return 'bg-blue-600/20 text-blue-400'
-
-      case 'cancelado':
-        return 'bg-red-600/20 text-red-400'
-
-      default:
-        return 'bg-yellow-600/20 text-yellow-400'
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p className="text-gray-400">
-          Verificando acceso...
-        </p>
-      </div>
-    )
-  }
-
-  if (!authorized) {
-    return null
-  }
-
-  return (
-    <div className="min-h-screen bg-black text-white">
-      <header className="bg-gray-900 border-b border-gray-800 px-4 md:px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-          <div>
-            <Link
-              to="/"
-              className="text-2xl md:text-3xl font-black bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent"
-            >
-              Servidor Uverley
-            </Link>
-
-            <p className="text-gray-400 text-sm">
-              Panel de administración
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={loadData}
-              disabled={refreshing}
-              className="p-3 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 rounded-lg"
-              title="Actualizar"
-            >
-              <RefreshCw
-                size={19}
-                className={
-                  refreshing
-                    ? 'animate-spin'
-                    : ''
-                }
-              />
-            </button>
-
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 px-4 py-3 rounded-lg"
-            >
-              <LogOut size={18} />
-
-              <span className="hidden sm:inline">
-                Salir
-              </span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex gap-2 overflow-x-auto mb-8 pb-2">
-          <button
-            onClick={() =>
-              setActiveSection('inicio')
-            }
-            className={`px-5 py-3 rounded-lg font-semibold whitespace-nowrap ${
-              activeSection === 'inicio'
-                ? 'bg-blue-600'
-                : 'bg-gray-800'
-            }`}
-          >
-            Inicio
-          </button>
-
-          <button
-            onClick={() =>
-              setActiveSection('clientes')
-            }
-            className={`px-5 py-3 rounded-lg font-semibold whitespace-nowrap ${
-              activeSection === 'clientes'
-                ? 'bg-blue-600'
-                : 'bg-gray-800'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Users size={18} />
-              Clientes
-            </span>
-          </button>
-
-          <button
-            onClick={() =>
-              setActiveSection('movimientos')
-            }
-            className={`px-5 py-3 rounded-lg font-semibold whitespace-nowrap ${
-              activeSection === 'movimientos'
-                ? 'bg-blue-600'
-                : 'bg-gray-800'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <History size={18} />
-              Movimientos
-            </span>
-          </button>
-
-          <button
-            onClick={() =>
-              setActiveSection('pedidos')
-            }
-            className={`px-5 py-3 rounded-lg font-semibold whitespace-nowrap ${
-              activeSection === 'pedidos'
-                ? 'bg-blue-600'
-                : 'bg-gray-800'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <ShoppingCart size={18} />
-              Pedidos
-            </span>
-          </button>
-
-          <Link
-            to="/products"
-            className="px-5 py-3 rounded-lg font-semibold bg-orange-600 hover:bg-orange-700 whitespace-nowrap"
-          >
-            <span className="flex items-center gap-2">
-              <Package size={18} />
-              Productos
-            </span>
-          </Link>
-        </div>
-
-        {activeSection === 'inicio' && (
-          <>
-            <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-800/50 rounded-2xl p-8 mb-8">
-              <h1 className="text-3xl font-black mb-2">
-                Bienvenido al panel
-              </h1>
-
-              <p className="text-gray-300">
-                Administra clientes, saldos, pedidos y
-                productos desde un solo lugar.
-              </p>
-            </div>
-
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-                <Users className="text-blue-400 mb-4" />
-
-                <p className="text-gray-400">
-                  Usuarios
-                </p>
-
-                <p className="text-3xl font-black">
-                  {clients.length}
-                </p>
-              </div>
-
-              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-                <Wallet className="text-green-400 mb-4" />
-
-                <p className="text-gray-400">
-                  Saldo total
-                </p>
-
-                <p className="text-2xl font-black">
-                  {formatPrice(
-                    clients.reduce(
-                      (sum, client) =>
-                        sum +
-                        Number(
-                          client.balance || 0,
-                        ),
-                      0,
-                    ),
-                  )}
-                </p>
-              </div>
-
-              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-                <ShoppingCart className="text-purple-400 mb-4" />
-
-                <p className="text-gray-400">
-                  Pedidos
-                </p>
-
-                <p className="text-3xl font-black">
-                  {orders.length}
-                </p>
-              </div>
-
-              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-                <History className="text-yellow-400 mb-4" />
-
-                <p className="text-gray-400">
-                  Movimientos
-                </p>
-
-                <p className="text-3xl font-black">
-                  {transactions.length}
-                </p>
-              </div>
-              className="grid md:grid-cols-2 gap-5 mt-8">
-              <button
-                onClick={() =>
-                  setActiveSection('clientes')
-                }
-                className="bg-blue-600 hover:bg-blue-700 rounded-2xl p-7 text-left transition-all"
-              >
-                <Wallet size={30} />
-
-                <h2 className="text-xl font-bold mt-4">
-                  Administrar saldos
-                </h2>
-
-                <p className="text-blue-100 mt-2">
-                  Agrega o descuenta saldo a tus
-                  clientes.
-                </p>
-              </button>
-
-              <Link
-                to="/products"
-                className="bg-orange-600 hover:bg-orange-700 rounded-2xl p-7 text-left transition-all"
-              >
-                <Package size={30} />
-
-                <h2 className="text-xl font-bold mt-4">
-                  Administrar productos
-                </h2>
-
-                <p className="text-orange-100 mt-2">
-                  Agrega productos, cambia precios e
-                  imágenes.
-                </p>
-              </Link>
-          </div>
-
-          <div className="mt-8">
-            <button
-              onClick={() => setActiveSection('recargas')}
-              className="w-full bg-gray-900 border border-gray-800 hover:border-blue-500 p-6 rounded-2xl flex items-center justify-between transition-colors text-left"
-            >
-              <div>
-                <h2 className="text-xl font-bold">Aprobar Recargas Pendientes</h2>
-                <p className="text-gray-400 text-sm">Revisa los comprobantes enviados por los usuarios.</p>
-              </div>
-              <span className="bg-blue-600 text-white font-bold px-3 py-1 rounded-full text-sm">
-                {topups.length}
-              </span>
-            </button>
-          </div>
-      </>
-        )}
-
-        {activeSection === 'recargas' && (
-    <div className="flex items-center gap-3 mb-6">
-      <button onClick={() => setActiveSection('inicio')} className="p-2 bg-gray-800 rounded-lg">
-        <ArrowLeft size={20} />
-      </button>
-      <div>
-        <h1 className="text-3xl font-black">Recargas de Usuarios</h1>
-        <p className="text-gray-400">Verifica el comprobante y aprueba los saldos.</p>
-      </div>
-    </div>
-
-    <div className="grid gap-4">
-      {topups.length === 0 ? (
-        <div className="bg-gray-900 border border-gray-800 p-8 rounded-2xl text-center text-gray-400">
-          No hay solicitudes de recarga pendientes.
-        </div>
-      ) : (
-        topups.map((topup) => (
-          <div key={topup.id} className="bg-gray-900 border border-gray-800 rounded-2xl p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-              <p className="text-sm text-gray-400">Usuario ID: {topup.user_id}</p>
-              <p className="text-2xl font-black text-green-400">{formatPrice(topup.amount)}</p>
-              {topup.proof_url && (
-                <a href={topup.proof_url} target="_blank" rel="noreferrer" className="text-blue-400 underline text-sm mt-1 inline-block">
-                  Ver comprobante de pago
-                </a>
-              )}
-            </div>
-            <button
-              onClick={() => handleApproveTopup(topup.id, topup.user_id, topup.amount)}
-              className="bg-green-600 hover:bg-green-700 font-bold px-5 py-3 rounded-lg text-white"
-            >
-              Aprobar Recarga
-            </button>
-          </div>
-        ))
-      )}
-    </div>
-  </>
-)}
-        
-        {activeSection === 'clientes' && (
-          <>
-            <div className="flex items-center gap-3 mb-6">
-              <button
-                onClick={() =>
-                  setActiveSection('inicio')
-                }
-                className="p-2 bg-gray-800 rounded-lg"
-              >
-                <ArrowLeft size={20} />
-              </button>
-
-              <div>
-                <h1 className="text-3xl font-black">
-                  Clientes y saldos
-                </h1>
-
-                <p className="text-gray-400">
-                  Administra el saldo de cada cliente.
-                </p>
-              </div>
-            </div>
-
-            {selectedClient && (
-              <div className="bg-gray-900 border border-blue-600 rounded-2xl p-6 mb-8">
-                <h2 className="text-xl font-bold mb-2">
-                  Modificar saldo
-                </h2>
-
-                <p className="text-gray-400 mb-5">
-                  {selectedClient.email}
-                </p>
-
-                <p className="text-green-400 text-3xl font-black mb-5">
-                  {formatPrice(
-                    selectedClient.balance,
-                  )}
-                </p>
-
-                <div className="grid md:grid-cols-2 gap-4">
-                  <input
-                    type="number"
-                    min="20000"
-                    max="2000000"
-                    placeholder="Monto"
-                    value={amount}
-                    onChange={(e) =>
-                      setAmount(e.target.value)
-                    }
-                    className="bg-black border border-gray-700 rounded-lg px-4 py-3 text-white outline-none focus:border-blue-500"
-                  />
-
-                  <input
-                    type="text"
-                    placeholder="Descripción (opcional)"
-                    value={description}
-                    onChange={(e) =>
-                      setDescription(
-                        e.target.value,
-                      )
-                    }
-                    className="bg-black border border-gray-700 rounded-lg px-4 py-3 text-white outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div className="flex flex-wrap gap-3 mt-5">
-                  <button
-                    disabled={processing}
-                    onClick={() =>
-                      changeBalance('recarga')
-                    }
-                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 px-5 py-3 rounded-lg font-bold"
-                  >
-                    <Plus size={20} />
-                    Agregar saldo
-                  </button>
-
-                  <button
-                    disabled={processing}
-                    onClick={() =>
-                      changeBalance('descuento')
-                    }
-                    className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 px-5 py-3 rounded-lg font-bold"
-                  >
-                    <Minus size={20} />
-                    Descontar saldo
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setSelectedClient(null)
-                      setAmount('')
-                      setDescription('')
-                    }}
-                    className="bg-gray-700 hover:bg-gray-600 px-5 py-3 rounded-lg font-bold"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-4">
-              {clients.length === 0 ? (
-                <div className="bg-gray-900 rounded-2xl p-8 text-center text-gray-400">
-                  No se encontraron clientes.
-                </div>
-              ) : (
-                clients.map((client) => (
-                  <div
-                    key={client.id}
-                    className="bg-gray-900 border border-gray-800 rounded-2xl p-5"
-                  >
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
-                      <div>
-                        <p className="font-bold text-lg">
-                          {client.email ??
-                            'Usuario registrado'}
-                        </p>
-
-                        <p className="text-gray-500 text-xs mt-1">
-                          ID: {client.id}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-5">
-                        <div>
-                          <p className="text-gray-400 text-sm">
-                            Saldo
-                          </p>
-
-                          <p className="text-green-400 text-2xl font-black">
-                            {formatPrice(
-                              client.balance,
-                            )}
-                          </p>
-                        </div>
-
-                        {client.role !== 'admin' && (
-                          <button
-                            onClick={() =>
-                              setSelectedClient(
-                                client,
-                              )
-                            }
-                            className="bg-blue-600 hover:bg-blue-700 px-5 py-3 rounded-lg font-bold"
-                          >
-                            Administrar
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </>
-        )}
-
-        {activeSection === 'movimientos' && (
-          <>
-            <h1 className="text-3xl font-black mb-2">
-              Historial de saldo
-            </h1>
-
-            <p className="text-gray-400 mb-8">
-              Últimos movimientos realizados.
-            </p>
-
-            <div className="space-y-3">
-              {transactions.length === 0 ? (
-                <div className="bg-gray-900 rounded-2xl p-8 text-center text-gray-400">
-                  Todavía no hay movimientos.
-                </div>
-              ) : (
-                transactions.map((transaction) => (
-                  <div
-                    key={transaction.id}
-                    className="bg-gray-900 border border-gray-800 rounded-xl p-5"
-                  >
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                      <div>
-                        <p className="font-bold">
-                          {clientEmail(
-                            transaction.user_id,
-                          )}
-                        </p>
-
-                        <p className="text-gray-400 text-sm">
-                          {transaction.description ??
-                            'Movimiento de saldo'}
-                        </p>
-
-                        <p className="text-gray-500 text-xs mt-1">
-                          {new Date(
-                            transaction.created_at,
-                          ).toLocaleString('es-CO')}
-                        </p>
-                      </div>
-
-                      <div
-                        className={`text-xl font-black ${
-                          transaction.type ===
-                          'descuento'
-                            ? 'text-red-400'
-                            : 'text-green-400'
-                        }`}
-                      >
-                        {transaction.type ===
-                        'descuento'
-                          ? '-'
-                          : '+'}
-
-                        {formatPrice(
-                          transaction.amount,
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </>
-        )}
-
-        {activeSection === 'pedidos' && (
-          <>
-            <h1 className="text-3xl font-black mb-2">
-              Pedidos
-            </h1>
-
-            <p className="text-gray-400 mb-8">
-              Pedidos realizados por los clientes.
-            </p>
-
-            <div className="space-y-3">
-              {orders.length === 0 ? (
-                <div className="bg-gray-900 rounded-2xl p-8 text-center text-gray-400">
-                  Todavía no hay pedidos.
-                </div>
-              ) : (
-                orders.map((order) => (
-                  <div
-                    key={order.id}
-                    className="bg-gray-900 border border-gray-800 rounded-xl p-5"
-                  >
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div>
-                        <p className="font-bold text-lg">
-                          {order.product_name}
-                        </p>
-
-                        <p className="text-gray-400 text-sm">
-                          Cliente:{' '}
-                          {clientEmail(
-                            order.user_id,
-                          )}
-                        </p>
-
-                        <p className="text-gray-500 text-xs mt-1">
-                          Pedido #{order.id}
-                        </p>
-
-                        <p className="text-gray-500 text-xs">
-                          {new Date(
-                            order.created_at,
-                          ).toLocaleString('es-CO')}
-                        </p>
-                      </div>
-
-                      <div className="text-left md:text-right">
-                        <p className="text-green-400 font-black text-xl">
-                          {formatPrice(order.price)}
-                        </p>
-
-                        <select
-                          value={
-                            order.status ||
-                            'pendiente'
-                          }
-                          disabled={
-                            changingOrder ===
-                            order.id
-                          }
-                          onChange={(e) =>
-                            changeOrderStatus(
-                              order.id,
-                              e.target.value,
-                            )
-                          }
-                          className={`border border-gray-700 text-white rounded-lg px-3 py-2 mt-2 outline-none ${statusClass(
-                            order.status ||
-                              'pendiente',
-                          )}`}
-                        >
-                          <option
-                            value="pendiente"
-                            className="bg-gray-900 text-white"
-                          >
-                            Pendiente
-                          </option>
-
-                          <option
-                            value="procesando"
-                            className="bg-gray-900 text-white"
-                          >
-                            Procesando
-                          </option>
-
-                          <option
-                            value="completado"
-                            className="bg-gray-900 text-white"
-                          >
-                            Completado
-                          </option>
-
-                          <option
-                            value="cancelado"
-                            className="bg-gray-900 text-white"
-                          >
-                            Cancelado
-                          </option>
-                        </select>
-
-                        {changingOrder ===
-                          order.id && (
-                          <p className="text-gray-400 text-xs mt-2">
-                            Guardando...
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </>
-        )}
-      </main>
-
-      <a
-        href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(
-          'Hola Servidor Uverley, necesito ayuda.',
-        )}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="fixed bottom-5 right-5 bg-green-600 hover:bg-green-700 p-4 rounded-full shadow-xl"
-      >
-        <MessageCircle size={25} />
-      </a>
-    </div>
-  )
+  async function logout() { await supabase.auth.signOut(); navigate({ to: '/' }) }
+  function clientEmail(id: string) { return clients.find(client => client.id === id)?.email ?? `Usuario ${id.slice(0, 12)}...` }
+  function statusClass(status: string) { return status === 'completado' ? 'text-green-400' : status === 'cancelado' ? 'text-red-400' : 'text-yellow-400' }
+
+  if (loading) return <div className="min-h-screen bg-black text-white flex items-center justify-center">Verificando acceso...</div>
+  if (!authorized) return null
+
+  return <div className="min-h-screen bg-black text-white">
+    <header className="bg-gray-900 border-b border-gray-800 px-4 py-4"><div className="max-w-7xl mx-auto flex justify-between items-center"><div><Link to="/" className="text-2xl font-black text-blue-400">Servidor Uverley</Link><p className="text-gray-400 text-sm">Panel de administración</p></div><div className="flex gap-2"><button onClick={() => void loadData()} disabled={refreshing} className="p-3 bg-gray-800 rounded-lg" title="Actualizar"><RefreshCw size={19} className={refreshing ? 'animate-spin' : ''} /></button><button onClick={() => void logout()} className="bg-gray-800 px-4 py-3 rounded-lg flex gap-2"><LogOut size={18} />Salir</button></div></div></header>
+    <main className="max-w-7xl mx-auto px-4 py-8">
+      <nav className="flex gap-2 overflow-x-auto mb-8 pb-2">{([['inicio','Inicio'],['clientes','Clientes'],['movimientos','Movimientos'],['pedidos','Pedidos'],['recargas','Recargas']] as [Section,string][]).map(([key,label]) => <button key={key} onClick={() => setSection(key)} className={`px-5 py-3 rounded-lg font-semibold whitespace-nowrap ${section === key ? 'bg-blue-600' : 'bg-gray-800'}`}>{label}{key === 'recargas' && ` (${topups.length})`}</button>)}<Link to="/products" className="px-5 py-3 rounded-lg font-semibold bg-orange-600 whitespace-nowrap">Productos</Link></nav>
+      {section === 'inicio' && <><div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 mb-8"><h1 className="text-3xl font-black mb-2">Bienvenido al panel</h1><p className="text-gray-300">Administra clientes, saldos, pedidos y productos desde un solo lugar.</p></div><div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">{[['Usuarios', clients.length, Users],['Saldo total', formatPrice(clients.reduce((sum, c) => sum + Number(c.balance || 0), 0)), Wallet],['Pedidos', orders.length, ShoppingCart],['Movimientos', transactions.length, History]].map(([label,value,Icon]) => <div key={String(label)} className="bg-gray-900 border border-gray-800 rounded-2xl p-6"><Icon className="text-blue-400 mb-4" /><p className="text-gray-400">{label}</p><p className="text-2xl font-black">{value}</p></div>)}</div></>}
+      {section === 'recargas' && <section><h1 className="text-3xl font-black mb-6">Recargas pendientes</h1>{topups.length === 0 ? <p className="text-gray-400">No hay solicitudes pendientes.</p> : <div className="space-y-4">{topups.map(topup => <div key={topup.id} className="bg-gray-900 border border-gray-800 rounded-2xl p-6 flex flex-wrap justify-between gap-4"><div><p className="text-gray-400">{clientEmail(topup.user_id)}</p><p className="text-2xl font-black text-green-400">{formatPrice(topup.amount)}</p>{topup.proof_url && <a href={topup.proof_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">Ver comprobante</a>}</div><button disabled={processing} onClick={() => void approveTopup(topup)} className="bg-green-600 disabled:bg-gray-700 px-5 py-3 rounded-lg font-bold">Aprobar recarga</button></div>)}</div>}</section>}
+      {section === 'clientes' && <section><h1 className="text-3xl font-black mb-6">Clientes y saldos</h1>{selectedClient && <div className="bg-gray-900 border border-blue-600 rounded-2xl p-6 mb-8"><p className="text-xl font-bold">{selectedClient.email}</p><p className="text-green-400 text-3xl font-black my-4">{formatPrice(selectedClient.balance)}</p><div className="flex flex-wrap gap-3"><input value={amount} onChange={e => setAmount(e.target.value)} placeholder="Monto" className="bg-black border border-gray-700 rounded-lg px-4 py-3" /><input value={description} onChange={e => setDescription(e.target.value)} placeholder="Descripción" className="bg-black border border-gray-700 rounded-lg px-4 py-3" /><button disabled={processing} onClick={() => void changeBalance('recarga')} className="bg-green-600 px-4 py-3 rounded-lg"><Plus size={18} /></button><button disabled={processing} onClick={() => void changeBalance('descuento')} className="bg-red-600 px-4 py-3 rounded-lg">Descontar</button><button onClick={() => setSelectedClient(null)} className="bg-gray-700 px-4 py-3 rounded-lg">Cancelar</button></div></div>}<div className="space-y-4">{clients.map(client => <div key={client.id} className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex justify-between items-center gap-4"><div><p className="font-bold">{client.email ?? 'Usuario registrado'}</p><p className="text-green-400 text-xl font-black">{formatPrice(client.balance)}</p></div>{client.role !== 'admin' && <button onClick={() => setSelectedClient(client)} className="bg-blue-600 px-4 py-2 rounded-lg">Administrar</button>}</div>)}</div></section>}
+      {section === 'movimientos' && <section><h1 className="text-3xl font-black mb-6">Historial de saldo</h1><div className="space-y-3">{transactions.map(t => <div key={t.id} className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex justify-between"><div><p className="font-bold">{clientEmail(t.user_id)}</p><p className="text-gray-400">{t.description ?? 'Movimiento de saldo'}</p></div><p className={t.type === 'descuento' ? 'text-red-400' : 'text-green-400'}>{t.type === 'descuento' ? '-' : '+'}{formatPrice(t.amount)}</p></div>)}</div></section>}
+      {section === 'pedidos' && <section><h1 className="text-3xl font-black mb-6">Pedidos</h1><div className="space-y-3">{orders.map(order => <div key={order.id} className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex justify-between items-center gap-4"><div><p className="font-bold">{order.product_name}</p><p className="text-gray-400">{clientEmail(order.user_id)}</p><p className="text-green-400">{formatPrice(order.price)}</p></div><select value={order.status || 'pendiente'} disabled={changingOrder === order.id} onChange={e => void changeOrderStatus(order.id, e.target.value)} className={`bg-gray-800 p-2 rounded ${statusClass(order.status)}`}><option value="pendiente">Pendiente</option><option value="procesando">Procesando</option><option value="completado">Completado</option><option value="cancelado">Cancelado</option></select></div>)}</div></section>}
+    </main><a href={`https://wa.me/${WA_NUMBER}`} target="_blank" rel="noopener noreferrer" className="fixed bottom-5 right-5 bg-green-600 p-4 rounded-full"><MessageCircle size={25} /></a>
+  </div>
 }
