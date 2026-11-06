@@ -2,29 +2,8 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { ArrowLeft, ChevronDown, MessageCircle } from 'lucide-react'
 import { Logo } from '../components/Logo'
-
-const faqs = [
-  {
-    question: '¿Qué tipo de servicios ofrecen?',
-    answer: 'Servicios técnicos y digitales para dispositivos móviles. En la página principal ves el catálogo actualizado con su precio; si tu caso no aparece, escríbenos por WhatsApp.',
-  },
-  {
-    question: '¿Necesito una cuenta para pedir?',
-    answer: 'Sí. La cuenta guarda tu saldo, tus recargas y el estado de cada pedido. Registrarte es gratis y solo pide un correo.',
-  },
-  {
-    question: '¿Cómo recargo saldo?',
-    answer: 'Desde "Mi cuenta" entra a "Recargar saldo", paga por Nequi al número indicado y sube la captura del comprobante. El saldo se acredita cuando el administrador valida el pago. La recarga mínima es de $20.000 COP.',
-  },
-  {
-    question: '¿Cuánto tarda la atención?',
-    answer: 'Depende del servicio. Las solicitudes se gestionan en orden de llegada y puedes revisar el estado en "Mis pedidos" en cualquier momento.',
-  },
-  {
-    question: '¿Qué pasa si un pedido se cancela?',
-    answer: 'Escríbenos por WhatsApp con el número de pedido y revisamos el caso para ajustar tu saldo.',
-  },
-]
+import { useSite } from '../lib/site'
+import { waLink } from '../lib/site-config'
 
 export const Route = createFileRoute('/faq')({
   head: () => ({ meta: [{ title: 'Preguntas frecuentes · Servidor Uverley' }] }),
@@ -32,6 +11,7 @@ export const Route = createFileRoute('/faq')({
 })
 
 function FaqPage() {
+  const site = useSite()
   const [open, setOpen] = useState<number | null>(0)
 
   return (
@@ -50,10 +30,10 @@ function FaqPage() {
         <h1 className="text-4xl font-bold md:text-5xl">Preguntas frecuentes</h1>
 
         <div className="mt-12 divide-y divide-gray-900 border-y border-gray-900">
-          {faqs.map((faq, i) => {
+          {site.faq.map((faq, i) => {
             const isOpen = open === i
             return (
-              <div key={faq.question}>
+              <div key={i}>
                 <button
                   onClick={() => setOpen(isOpen ? null : i)}
                   aria-expanded={isOpen}
@@ -74,10 +54,10 @@ function FaqPage() {
 
         <div className="mt-14 flex flex-col items-start justify-between gap-5 rounded-2xl border border-gray-800 bg-gray-950 p-7 sm:flex-row sm:items-center">
           <div>
-            <p className="font-semibold">¿No encontraste tu respuesta?</p>
-            <p className="mt-1 text-sm text-gray-400">Te respondemos directamente por WhatsApp.</p>
+            <p className="font-semibold">{site.faqContact.title}</p>
+            <p className="mt-1 text-sm text-gray-400">{site.faqContact.text}</p>
           </div>
-          <a href="https://wa.me/573172329884" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-5 py-3 font-semibold text-white hover:bg-green-700">
+          <a href={waLink(site)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-5 py-3 font-semibold text-white hover:bg-green-700">
             <MessageCircle size={18} /> Escribir
           </a>
         </div>

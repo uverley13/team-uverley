@@ -10,18 +10,16 @@ import {
 } from 'lucide-react'
 import { formatPrice, useSession } from '../lib/session'
 import { Logo } from '../components/Logo'
+import { useSite } from '../lib/site'
 
 export const Route = createFileRoute('/topup')({
   component: TopupPage,
 })
 
-const NEQUI_NAME = 'Uverley Rodriguez'
-const NEQUI_NUMBER = '3153310730'
-
-const MIN_AMOUNT = 20000
-const MAX_AMOUNT = 2000000
-
 function TopupPage() {
+  const site = useSite()
+  const MIN_AMOUNT = site.payments.minTopup
+  const MAX_AMOUNT = site.payments.maxTopup
   const navigate = useNavigate()
 
   const { session, ready, refresh } = useSession()
@@ -192,15 +190,15 @@ function TopupPage() {
           {/* NEQUI */}
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-8">
             <p className="text-gray-400 text-sm mb-2">
-              Realiza el pago por Nequi a:
+              Realiza el pago por {site.payments.method} a:
             </p>
 
             <p className="text-2xl font-bold">
-              {NEQUI_NAME}
+              {site.payments.accountName}
             </p>
 
             <p className="text-3xl font-bold text-green-400 mt-2">
-              {NEQUI_NUMBER}
+              {site.payments.accountNumber}
             </p>
 
             <p className="text-gray-400 text-sm mt-4">
@@ -227,7 +225,7 @@ function TopupPage() {
               inputMode="numeric"
               value={amount}
               onChange={(e) => formatInput(e.target.value)}
-              placeholder="20.000"
+              placeholder={new Intl.NumberFormat('es-CO').format(MIN_AMOUNT)}
               className="w-full bg-gray-950 border border-gray-700 focus:border-blue-500 outline-none rounded-xl py-4 pl-10 pr-4 text-2xl font-bold text-white"
             />
           </div>
@@ -332,9 +330,7 @@ function TopupPage() {
             />
 
             <p className="text-yellow-200 text-sm">
-              Después de realizar el pago, sube el comprobante.
-              El saldo será agregado cuando el administrador
-              apruebe la recarga.
+              {site.payments.note}
             </p>
           </div>
         </div>

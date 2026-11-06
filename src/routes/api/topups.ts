@@ -5,8 +5,9 @@ import { topups } from '../../../db/schema.js'
 import { requireUser } from '../../server/auth'
 import { imageKeyFor, topupProofs } from '../../server/files'
 
-const MIN_TOPUP = 20000
-const MAX_TOPUP = 2000000
+import { loadSite } from '../../server/site'
+
+const formatPrice = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n)
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status })
@@ -31,8 +32,9 @@ export const Route = createFileRoute('/api/topups')({
         const form = await request.formData().catch(() => null)
         const amount = Number(form?.get('amount'))
         const proof = form?.get('proof')
-        if (!Number.isInteger(amount) || amount < MIN_TOPUP || amount > MAX_TOPUP) {
-          return json({ error: 'El monto debe estar entre $20.000 y $2.000.000 COP.' }, 400)
+        const { payments } = await loadSite()
+        if (!Number.isInteger(amount) || amount < payments.minTopup || amount > payments.maxTopup) {
+          return json({ error: `El monto debe estar entre ${formatPrice(payments.minTopup)} y ${formatPrice(payments.maxTopup)}.` }, 400)
         }
         if (!(proof instanceof File) || proof.size === 0) {
           return json({ error: 'Debes subir el comprobante de pago.' }, 400)

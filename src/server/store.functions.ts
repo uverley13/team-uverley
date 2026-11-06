@@ -129,17 +129,17 @@ export const getMyAccount = createServerFn({ method: 'GET' }).handler(async () =
 
 export const getAdminData = createServerFn({ method: 'GET' }).handler(async () => {
   await requireAdmin()
-  const [clients, transactions, allOrders, pendingTopups] = await Promise.all([
+  const [clients, transactions, allOrders, allTopups] = await Promise.all([
     db.select().from(profiles).orderBy(desc(profiles.createdAt)),
     db.select().from(balanceTransactions).orderBy(desc(balanceTransactions.createdAt)).limit(100),
     db.select().from(orders).orderBy(desc(orders.createdAt)).limit(200),
-    db.select().from(topups).where(eq(topups.status, 'pending')).orderBy(desc(topups.createdAt)),
+    db.select().from(topups).orderBy(desc(topups.createdAt)).limit(300),
   ])
   return {
     clients: clients.map(c => ({ id: c.id, email: c.email, username: c.username, balance: c.balance, createdAt: c.createdAt.toISOString() })),
     transactions: transactions.map(t => ({ ...t, createdAt: t.createdAt.toISOString() })),
     orders: allOrders.map(toOrder),
-    topups: pendingTopups.map(t => ({
+    topups: allTopups.map(t => ({
       id: t.id,
       userId: t.userId,
       amount: t.amount,

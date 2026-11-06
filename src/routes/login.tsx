@@ -3,13 +3,15 @@ import { useState } from 'react'
 import { MessageCircle, LogIn } from 'lucide-react'
 import { AuthError, login, requestPasswordRecovery } from '@netlify/identity'
 import { errorMessage, useSession } from '../lib/session'
+import { confirmPendingAccount } from '../server/account.functions'
+import { useSite } from '../lib/site'
+import { waLink } from '../lib/site-config'
 import { AuthShell, Field, inputClass } from '../components/AuthShell'
 export const Route = createFileRoute('/login')({
   component: LoginPage,
 })
-const WA_LOGIN =
-  'https://wa.me/573172329884?text=Hola%20Servidor%20Uverley%2C%20quiero%20acceder%20al%20panel'
 function LoginPage() {
+  const site = useSite()
   const navigate = useNavigate()
   const { refresh } = useSession()
   const [email, setEmail] = useState('')
@@ -27,15 +29,23 @@ function LoginPage() {
     try {
       if (forgot) {
         await requestPasswordRecovery(email.trim())
-        setInfo('Si el correo está registrado, te enviamos un enlace para crear una nueva contraseña.')
+        setInfo('Si el correo está registrado, te enviamos un enlace para crear una nueva contraseña. Puede tardar unos minutos: revisa también la carpeta de spam o correo no deseado. Si no llega, escríbenos por WhatsApp.')
         return
       }
-      await login(email.trim(), password)
+      const cleanEmail = email.trim()
+      try {
+        await login(cleanEmail, password)
+      } catch (err) {
+        // Accounts created before confirmation emails were dropped may still be pending.
+        if (!(err instanceof AuthError && (err.status === 400 || err.status === 401))) throw err
+        await confirmPendingAccount({ data: { email: cleanEmail } })
+        await login(cleanEmail, password)
+      }
       const session = await refresh()
       navigate({ to: session?.isAdmin ? '/dashboard' : '/' })
     } catch (err) {
       if (err instanceof AuthError && (err.status === 400 || err.status === 401)) {
-        setError('Correo o contraseña incorrectos, o la cuenta aún no está confirmada.')
+        setError('Correo o contraseña incorrectos.')
       } else {
         setError(errorMessage(err, 'Ocurrió un error al iniciar sesión.'))
       }
@@ -73,7 +83,7 @@ function LoginPage() {
         </button>
       </form>
       <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-widest text-gray-600"><span className="h-px flex-1 bg-gray-800" />o<span className="h-px flex-1 bg-gray-800" /></div>
-      <a href={WA_LOGIN} target="_blank" rel="noopener noreferrer" className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-800 py-3.5 font-semibold text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-950">
+      <a href={waLink(site, site.contact.supportMessage)} target="_blank" rel="noopener noreferrer" className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-800 py-3.5 font-semibold text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-950">
         <MessageCircle size={18} className="text-green-400" />
         ¿Problemas para ingresar? Escríbenos
       </a>

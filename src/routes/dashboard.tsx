@@ -1,8 +1,11 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ExternalLink, History, LogOut, Package, RefreshCw, ShoppingCart, Users, Wallet, X } from 'lucide-react'
+import { Check, Database, ExternalLink, FileText, History, LogOut, Package, RefreshCw, ShoppingCart, Sparkles, Users, Wallet, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Logo } from '../components/Logo'
+import { SiteEditor } from '../components/admin/SiteEditor'
+import { AssistantPanel } from '../components/admin/AssistantPanel'
+import { DatabaseBrowser } from '../components/admin/DatabaseBrowser'
 import { errorMessage, formatDate, formatPrice, useSession } from '../lib/session'
 import { adminChangeBalance, adminReviewTopup, adminSetOrderStatus, getAdminData, ORDER_STATUSES } from '../server/store.functions'
 
@@ -13,7 +16,14 @@ export const Route = createFileRoute('/dashboard')({
 
 type AdminData = Awaited<ReturnType<typeof getAdminData>>
 type Client = AdminData['clients'][number]
-type Section = 'inicio' | 'clientes' | 'movimientos' | 'pedidos' | 'recargas'
+type Section = 'inicio' | 'clientes' | 'movimientos' | 'pedidos' | 'recargas' | 'contenido' | 'asistente' | 'datos'
+type TopupFilter = 'pending' | 'approved' | 'rejected' | 'all'
+
+const TOPUP_STATUS: Record<string, { label: string; className: string }> = {
+  pending: { label: 'En revisión', className: 'bg-yellow-900/30 text-yellow-300' },
+  approved: { label: 'Aprobada', className: 'bg-green-900/40 text-green-300' },
+  rejected: { label: 'Rechazada', className: 'bg-red-950/60 text-red-300' },
+}
 
 const card = 'rounded-xl border border-gray-800 bg-gray-950'
 const fieldClass = 'w-full rounded-lg border border-gray-800 bg-gray-900 px-4 py-3 focus:border-blue-500 focus:outline-none'
@@ -30,6 +40,9 @@ function DashboardPage() {
   const [description, setDescription] = useState('')
   const [processing, setProcessing] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+  const [topupFilter, setTopupFilter] = useState<TopupFilter>('pending')
+  const [preview, setPreview] = useState<string | null>(null)
+  const notify = (kind: 'success' | 'error', text: string) => setNotice({ kind, text })
 
   useEffect(() => {
     if (!ready) return
@@ -111,16 +124,21 @@ function DashboardPage() {
     )
   }
 
+  const pendingTopups = data.topups.filter(t => t.status === 'pending')
+  const visibleTopups = topupFilter === 'all' ? data.topups : data.topups.filter(t => t.status === topupFilter)
   const pendingOrders = data.orders.filter(o => o.status === 'pendiente' || o.status === 'en proceso').length
   const totalBalance = data.clients.reduce((sum, c) => sum + c.balance, 0)
   const filteredClients = data.clients.filter(c => `${c.email} ${c.username}`.toLowerCase().includes(search.toLowerCase()))
 
   const menu: { section: Section; label: string; icon: LucideIcon; badge?: number }[] = [
     { section: 'inicio', label: 'Resumen', icon: Wallet },
-    { section: 'recargas', label: 'Recargas', icon: Wallet, badge: data.topups.length },
+    { section: 'recargas', label: 'Comprobantes', icon: Wallet, badge: pendingTopups.length },
     { section: 'pedidos', label: 'Pedidos', icon: ShoppingCart, badge: pendingOrders },
     { section: 'clientes', label: 'Clientes', icon: Users },
     { section: 'movimientos', label: 'Movimientos', icon: History },
+    { section: 'contenido', label: 'Contenido', icon: FileText },
+    { section: 'asistente', label: 'Asistente IA', icon: Sparkles },
+    { section: 'datos', label: 'Base de datos', icon: Database },
   ]
 
   return (
@@ -159,7 +177,7 @@ function DashboardPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 { label: 'Clientes', value: String(data.clients.length) },
-                { label: 'Recargas por revisar', value: String(data.topups.length), go: 'recargas' as Section },
+                { label: 'Recargas por revisar', value: String(pendingTopups.length), go: 'recargas' as Section },
                 { label: 'Pedidos activos', value: String(pendingOrders), go: 'pedidos' as Section },
                 { label: 'Saldo total de clientes', value: formatPrice(totalBalance) },
               ].map(stat => (
@@ -174,29 +192,53 @@ function DashboardPage() {
 
         {section === 'recargas' && (
           <section>
-            <h1 className="mb-6 text-3xl font-bold">Recargas por revisar</h1>
-            {data.topups.length === 0 ? (
-              <p className={`${card} p-8 text-center text-gray-400`}>No hay recargas pendientes.</p>
-            ) : (
-              <div className="space-y-3">
-                {data.topups.map(topup => (
-                  <div key={topup.id} className={`${card} flex flex-wrap items-center justify-between gap-4 p-5`}>
-                    <div>
-                      <p className="font-semibold">{clientLabel(topup.userId)}</p>
-                      <p className="font-mono text-xl text-green-400">{formatPrice(topup.amount)}</p>
-                      <p className="text-xs text-gray-500">#{topup.id} · {formatDate(topup.createdAt)}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <a href={topup.proofUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm hover:border-gray-500"><ExternalLink size={15} /> Ver comprobante</a>
-                      <button disabled={processing} onClick={() => void reviewTopup(topup.id, false, topup.amount)} className="inline-flex items-center gap-2 rounded-lg border border-red-900 px-4 py-2 text-sm text-red-300 hover:bg-red-950/50 disabled:opacity-50"><X size={15} /> Rechazar</button>
-                      <button disabled={processing} onClick={() => void reviewTopup(topup.id, true, topup.amount)} className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"><Check size={15} /> Aprobar</button>
-                    </div>
-                  </div>
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+              <h1 className="text-3xl font-bold">Comprobantes de recarga</h1>
+              <div className="flex flex-wrap gap-2">
+                {([['pending', 'Por revisar'], ['approved', 'Aprobadas'], ['rejected', 'Rechazadas'], ['all', 'Todas']] as [TopupFilter, string][]).map(([key, label]) => (
+                  <button key={key} onClick={() => setTopupFilter(key)} className={`rounded-lg px-3 py-2 text-sm font-semibold ${topupFilter === key ? 'bg-gray-100 text-black' : 'border border-gray-800 text-gray-300 hover:border-gray-600'}`}>{label}</button>
                 ))}
+              </div>
+            </div>
+            {visibleTopups.length === 0 ? (
+              <p className={`${card} p-8 text-center text-gray-400`}>{topupFilter === 'pending' ? 'No hay recargas pendientes.' : 'No hay recargas en esta lista.'}</p>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {visibleTopups.map(topup => {
+                  const status = TOPUP_STATUS[topup.status] ?? TOPUP_STATUS.pending
+                  return (
+                    <div key={topup.id} className={`${card} flex gap-4 p-4`}>
+                      <button onClick={() => setPreview(topup.proofUrl)} className="h-36 w-28 shrink-0 overflow-hidden rounded-lg border border-gray-800 bg-gray-900" title="Ampliar comprobante">
+                        <img src={topup.proofUrl} alt={`Comprobante de la recarga #${topup.id}`} loading="lazy" className="h-full w-full object-cover" />
+                      </button>
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="truncate font-semibold">{clientLabel(topup.userId)}</p>
+                          <span className={`shrink-0 rounded-md px-2 py-0.5 text-xs ${status.className}`}>{status.label}</span>
+                        </div>
+                        <p className="font-mono text-xl text-green-400">{formatPrice(topup.amount)}</p>
+                        <p className="text-xs text-gray-500">#{topup.id} · {formatDate(topup.createdAt)}</p>
+                        <div className="mt-auto flex flex-wrap gap-2 pt-3">
+                          <a href={topup.proofUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-sm hover:border-gray-500"><ExternalLink size={14} /> Abrir</a>
+                          {topup.status === 'pending' && (
+                            <>
+                              <button disabled={processing} onClick={() => void reviewTopup(topup.id, false, topup.amount)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-900 px-3 py-1.5 text-sm text-red-300 hover:bg-red-950/50 disabled:opacity-50"><X size={14} /> Rechazar</button>
+                              <button disabled={processing} onClick={() => void reviewTopup(topup.id, true, topup.amount)} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"><Check size={14} /> Aprobar</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </section>
         )}
+
+        {section === 'contenido' && <SiteEditor notify={notify} />}
+        {section === 'asistente' && <AssistantPanel notify={notify} />}
+        {section === 'datos' && <DatabaseBrowser />}
 
         {section === 'pedidos' && (
           <section>
@@ -288,6 +330,13 @@ function DashboardPage() {
           </section>
         )}
       </main>
+
+      {preview && (
+        <div role="dialog" aria-label="Comprobante" onClick={() => setPreview(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
+          <button onClick={() => setPreview(null)} className="absolute right-4 top-4 rounded-lg bg-gray-900 p-2" aria-label="Cerrar"><X size={20} /></button>
+          <img src={preview} alt="Comprobante de pago" className="max-h-full max-w-full rounded-lg object-contain" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   )
 }

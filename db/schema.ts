@@ -1,4 +1,4 @@
-import { boolean, index, integer, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'
+import { boolean, index, integer, jsonb, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'
 
 // One row per Netlify Identity user. `id` is the Identity user id.
 export const profiles = pgTable('profiles', {
@@ -60,3 +60,20 @@ export const topups = pgTable(
   },
   table => [index('topups_status_idx').on(table.status)],
 )
+
+// Editable site content (texts, contact data, colors, FAQ). A single row with key 'site'.
+export const siteSettings = pgTable('site_settings', {
+  key: text().primaryKey(),
+  value: jsonb().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Previous versions of the site content, so any change (manual or by the assistant) can be undone.
+export const siteSettingsRevisions = pgTable('site_settings_revisions', {
+  id: serial().primaryKey(),
+  value: jsonb().notNull(),
+  source: text().notNull(),
+  summary: text(),
+  createdBy: text('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})

@@ -4,15 +4,19 @@ import { createRootRoute, HeadContent, Link, Outlet, Scripts } from '@tanstack/r
 import appCss from '../styles.css?url'
 import { SessionProvider } from '../lib/session'
 import { PasswordRecovery } from '../components/PasswordRecovery'
+import { getSiteConfig } from '../server/site.functions'
+import { siteName, themeCss } from '../lib/site-config'
+import { useSite } from '../lib/site'
 
 export const Route = createRootRoute({
-  head: () => ({
+  loader: () => getSiteConfig(),
+  staleTime: 60_000,
+  head: ({ loaderData }) => ({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { name: 'theme-color', content: '#000000' },
-      { name: 'description', content: 'Servidor Uverley: servicios digitales, pedidos y soporte personalizado.' },
-      { title: 'Servidor Uverley' },
+      ...(loaderData ? [{ name: 'description', content: loaderData.brand.metaDescription }, { title: siteName(loaderData) }] : [{ title: 'Servidor Uverley' }]),
     ],
     links: [
       { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -31,10 +35,12 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: ReactNode }) {
+  const site = useSite()
   return (
     <html lang="es">
       <head>
         <HeadContent />
+        {site && <style dangerouslySetInnerHTML={{ __html: themeCss(site.theme) }} />}
       </head>
       <body>
         <SessionProvider>
