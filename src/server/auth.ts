@@ -2,7 +2,7 @@
 import { getUser, type User } from '@netlify/identity'
 import { eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { profiles } from '../../db/schema.js'
+import { adminAuditLog, profiles } from '../../db/schema.js'
 
 export type Profile = typeof profiles.$inferSelect
 
@@ -45,4 +45,34 @@ export async function requireAdmin() {
   const session = await requireUser()
   if (!session.isAdmin) throw new Error('No tienes permisos de administrador.')
   return session
+}
+
+/** Like requireUser, but rejects accounts suspended by an admin. */
+export async function requireActiveUser() {
+  const session = await requireUser()
+  if (session.profile.suspended && !session.isAdmin) {
+    throw new Error('Tu cuenta está suspendida. Escríbenos por WhatsApp para más información.')
+  }
+  return session
+}
+
+type AdminSession = Awaited<ReturnType<typeof requireAdmin>>
+// Accepts the db instance or a transaction so the log entry commits with the change it describes.
+type Executor = Pick<typeof db, 'insert'>
+
+/** Records an admin action in the activity log. */
+export async function logAdminAction(
+  executor: Executor,
+  admin: AdminSession,
+  entry: { action: string; summary: string; targetType?: string; targetId?: string | number; details?: unknown },
+) {
+  await executor.insert(adminAuditLog).values({
+    actorId: admin.profile.id,
+    actorEmail: admin.profile.email,
+    action: entry.action,
+    summary: entry.summary.slice(0, 500),
+    targetType: entry.targetType ?? null,
+    targetId: entry.targetId === undefined ? null : String(entry.targetId),
+    details: entry.details ?? null,
+  })
 }

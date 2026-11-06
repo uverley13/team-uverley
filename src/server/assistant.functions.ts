@@ -1,8 +1,10 @@
 import { createServerFn } from '@tanstack/react-start'
 import Anthropic from '@anthropic-ai/sdk'
 import { DEFAULT_SITE, ICON_NAMES, mergeSite, THEMES } from '../lib/site-config'
-import { requireAdmin } from './auth'
+import { logAdminAction, requireAdmin } from './auth'
+import { db } from '../../db/index.js'
 import { loadSite, storeSite } from './site'
+import { READ_TOOLS, runReadTool } from './assistant-tools'
 
 /*
  * Admin-only AI assistant. It reads the current site content and proposes a
@@ -14,9 +16,16 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string }
 const MODEL = 'claude-sonnet-5-5'
 
 const SYSTEM = `Eres el asistente de administración de una tienda web en español (Colombia).
-Ayudas al administrador a cambiar el contenido de su página: textos, marca, datos de contacto y de pago, color del tema, anuncio superior, pasos, ventajas y preguntas frecuentes.
+Ayudas al administrador a:
+1. Cambiar el contenido de su página (textos, marca, contacto, pagos, color, anuncio, pasos, ventajas, preguntas frecuentes) con "proponer_cambios".
+2. Analizar el negocio con herramientas de SOLO LECTURA: estadísticas de ventas, servicios, clientes, explicar el saldo de un cliente, detectar movimientos sospechosos y revisar errores del sistema.
+3. Recomendar mejoras de diseño y de textos comerciales, crear preguntas frecuentes, detectar información contradictoria en la página (por ejemplo montos o datos de contacto distintos entre secciones) y sugerir promociones basadas en las estadísticas reales.
+
+PERMISOS (obligatorio): NO puedes aprobar ni rechazar pagos, modificar saldos, suspender clientes ni eliminar registros. No tienes herramientas para eso. Si te lo piden, explica que esas acciones las hace el administrador desde su sección del panel. Tus cambios de contenido son solo propuestas que el administrador revisa y aplica.
 
 Reglas:
+- Usa las herramientas de consulta antes de afirmar cifras; nunca inventes datos. Montos en pesos colombianos (COP).
+- Al señalar algo sospechoso, explica por qué y sugiere qué revisar; no acuses a nadie.
 - Responde siempre en español, breve y claro.
 - Cuando el administrador pida un cambio, llama a la herramienta "proponer_cambios" con SOLO las secciones que cambian. Las listas (steps, values, faq) se envían completas porque reemplazan a la anterior.
 - No inventes datos sensibles (números de cuenta, teléfonos, precios) que el administrador no haya dado; pregunta si faltan.
@@ -57,15 +66,39 @@ export const adminAssistantChat = createServerFn({ method: 'POST' })
     await requireAdmin()
     const current = await loadSite()
     const anthropic = new Anthropic()
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: `${SYSTEM}\n\nContenido ACTUAL del sitio:\n${JSON.stringify(current)}`,
-      tools: [TOOL],
-      messages: data.messages,
-    })
-
+    const messages: Anthropic.MessageParam[] = [...data.messages]
+    let response: Anthropic.Message | null = null
     let reply = ''
+    // Up to 6 rounds of read-only lookups before the final answer.
+    for (let round = 0; round < 6; round++) {
+      response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 4096,
+        system: `${SYSTEM}\n\nFecha actual: ${new Date().toISOString()}\n\nContenido ACTUAL del sitio:\n${JSON.stringify(current)}`,
+        tools: [TOOL, ...READ_TOOLS],
+        messages,
+      })
+      const lookups = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name !== TOOL.name)
+      if (response.stop_reason !== 'tool_use' || lookups.length === 0) break
+      for (const block of response.content) if (block.type === 'text') reply += block.text + '\n'
+      const results: Anthropic.ToolResultBlockParam[] = await Promise.all(
+        response.content
+          .filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+          .map(async b => {
+            if (b.name === TOOL.name) return { type: 'tool_result' as const, tool_use_id: b.id, content: 'Propuesta registrada para revisión del administrador.' }
+            try {
+              const out = await runReadTool(b.name, (b.input ?? {}) as Record<string, unknown>)
+              return { type: 'tool_result' as const, tool_use_id: b.id, content: JSON.stringify(out).slice(0, 60_000) }
+            } catch (error) {
+              console.error('Herramienta del asistente falló:', error)
+              return { type: 'tool_result' as const, tool_use_id: b.id, content: 'No se pudo consultar esta información.', is_error: true }
+            }
+          }),
+      )
+      messages.push({ role: 'assistant', content: response.content }, { role: 'user', content: results })
+    }
+    if (!response) throw new Error('El asistente no respondió.')
+
     let proposal: { summary: string; patch: string; preview: string[] } | null = null
     for (const block of response.content) {
       if (block.type === 'text') reply += block.text
@@ -94,7 +127,10 @@ export const adminApplyAssistantChange = createServerFn({ method: 'POST' })
     return { patch, summary: String(data?.summary ?? '').slice(0, 300) }
   })
   .handler(async ({ data }) => {
-    const { profile } = await requireAdmin()
+    const admin = await requireAdmin()
     const current = await loadSite()
-    return storeSite(mergeSite(current, data.patch), { source: 'asistente', summary: data.summary || 'Cambio del asistente', by: profile.email })
+    const summary = data.summary || 'Cambio del asistente'
+    const saved = await storeSite(mergeSite(current, data.patch), { source: 'asistente', summary, by: admin.profile.email })
+    await logAdminAction(db, admin, { action: 'contenido.asistente', summary: `Aplicó un cambio propuesto por el asistente: ${summary}`, targetType: 'site' })
+    return saved
   })

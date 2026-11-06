@@ -1,12 +1,12 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { createRootRoute, HeadContent, Link, Outlet, Scripts } from '@tanstack/react-router'
 
 import appCss from '../styles.css?url'
 import { SessionProvider } from '../lib/session'
 import { PasswordRecovery } from '../components/PasswordRecovery'
 import { getSiteConfig } from '../server/site.functions'
-import { siteName, themeCss } from '../lib/site-config'
-import { useSite } from '../lib/site'
+import { normalizeSite, siteName, themeCss, type SiteConfig } from '../lib/site-config'
+import { SitePreviewContext, useSite } from '../lib/site'
 
 export const Route = createRootRoute({
   loader: () => getSiteConfig(),
@@ -34,8 +34,30 @@ export const Route = createRootRoute({
   notFoundComponent: NotFound,
 })
 
+/**
+ * Inside the admin editor's preview frame (?vista-previa=1), the page renders the
+ * draft content the editor sends via postMessage. Visitors never see drafts:
+ * the draft only exists in the admin's browser memory.
+ */
+function usePreviewSite() {
+  const [preview, setPreview] = useState<SiteConfig | null>(null)
+  useEffect(() => {
+    if (window.parent === window || !new URLSearchParams(window.location.search).has('vista-previa')) return
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.data?.type !== 'site-preview') return
+      setPreview(normalizeSite(event.data.site))
+    }
+    window.addEventListener('message', onMessage)
+    window.parent.postMessage({ type: 'site-preview-ready' }, window.location.origin)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+  return preview
+}
+
 function RootDocument({ children }: { children: ReactNode }) {
-  const site = useSite()
+  const live = useSite()
+  const preview = usePreviewSite()
+  const site = preview ?? live
   return (
     <html lang="es">
       <head>
@@ -43,10 +65,12 @@ function RootDocument({ children }: { children: ReactNode }) {
         {site && <style dangerouslySetInnerHTML={{ __html: themeCss(site.theme) }} />}
       </head>
       <body>
-        <SessionProvider>
-          {children}
-          <PasswordRecovery />
-        </SessionProvider>
+        <SitePreviewContext.Provider value={preview}>
+          <SessionProvider>
+            {children}
+            <PasswordRecovery />
+          </SessionProvider>
+        </SitePreviewContext.Provider>
         <Scripts />
       </body>
     </html>

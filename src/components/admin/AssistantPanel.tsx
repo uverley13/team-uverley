@@ -14,10 +14,14 @@ const SECTION_LABELS: Record<string, string> = {
 }
 
 const EXAMPLES = [
-  'Cambia el color de la página a morado',
-  'Pon un anuncio arriba: "Hoy 10% de descuento en recargas"',
-  'Agrega una pregunta frecuente sobre los horarios de atención: lunes a sábado de 8am a 8pm',
-  'Reescribe el texto de la portada para que suene más profesional',
+  '¿Cómo van las ventas este mes y qué servicios se venden más?',
+  'Revisa si hay movimientos o comprobantes sospechosos',
+  'Explica por qué el cliente juan@correo.com tiene ese saldo',
+  'Recomiéndame una promoción según las ventas',
+  '¿Hay información contradictoria o errores en la página?',
+  'Mejora los textos comerciales de la portada',
+  'Crea 3 preguntas frecuentes nuevas útiles para mis clientes',
+  'Recomienda mejoras de diseño para la página',
 ]
 
 export function AssistantPanel({ notify }: { notify: (kind: 'success' | 'error', text: string) => void }) {
@@ -50,6 +54,7 @@ export function AssistantPanel({ notify }: { notify: (kind: 'success' | 'error',
   async function apply(index: number) {
     const proposal = messages[index]?.proposal
     if (!proposal) return
+    if (!window.confirm(`¿Publicar este cambio en la página?\n\n${proposal.summary}\n\nSecciones: ${proposal.preview.map(k => SECTION_LABELS[k] ?? k).join(', ')}`)) return
     setApplying(index)
     try {
       await adminApplyAssistantChange({ data: { patch: proposal.patch, summary: proposal.summary } })
@@ -71,7 +76,7 @@ export function AssistantPanel({ notify }: { notify: (kind: 'success' | 'error',
     <section className="flex h-[calc(100vh-14rem)] min-h-[480px] flex-col">
       <div className="mb-4">
         <h1 className="flex items-center gap-2 text-3xl font-bold"><Sparkles className="text-blue-400" /> Asistente IA</h1>
-        <p className="text-sm text-gray-400">Solo disponible para administradores. Pídele cambios en lenguaje normal; nada se publica hasta que pulses "Aplicar".</p>
+        <p className="text-sm text-gray-400">Solo para administradores. Analiza ventas, saldos y riesgos, y propone cambios de contenido que nada publica hasta que pulses "Aplicar". Por seguridad no puede aprobar pagos, modificar saldos ni borrar registros.</p>
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto rounded-xl border border-gray-800 bg-gray-950 p-5">
@@ -112,7 +117,7 @@ export function AssistantPanel({ notify }: { notify: (kind: 'success' | 'error',
       </div>
 
       <form onSubmit={e => { e.preventDefault(); void send(input) }} className="mt-4 flex gap-2">
-        <input value={input} onChange={e => setInput(e.target.value)} placeholder="¿Qué quieres cambiar de la página?" className="flex-1 rounded-lg border border-gray-800 bg-gray-900 px-4 py-3 focus:border-blue-500 focus:outline-none" />
+        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Pregunta por tu negocio o pide un cambio en la página" className="flex-1 rounded-lg border border-gray-800 bg-gray-900 px-4 py-3 focus:border-blue-500 focus:outline-none" />
         <button disabled={thinking || !input.trim()} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-500 disabled:opacity-50"><Send size={16} /> Enviar</button>
       </form>
     </section>

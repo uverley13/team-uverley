@@ -94,6 +94,7 @@ function ProductsPage() {
   }
 
   async function toggle(product: ProductDTO) {
+    if (product.active && !window.confirm(`¿Ocultar "${product.name}"? Los clientes dejarán de verlo en el catálogo.`)) return
     try {
       const updated = await adminToggleProduct({ data: { id: product.id, active: !product.active } })
       setProducts(current => current?.map(p => (p.id === updated.id ? updated : p)) ?? null)
