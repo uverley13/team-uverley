@@ -9,6 +9,7 @@ import {
   LogOut,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { Logo } from '../components/Logo'
 
 export const Route = createFileRoute('/orders')({
   component: OrdersPage,
@@ -133,15 +134,10 @@ function OrdersPage() {
   return (
     <div className="min-h-screen bg-black text-white">
 
-      <header className="bg-gray-900/90 border-b border-gray-800 px-4 py-4">
+      <header className="bg-black/80 backdrop-blur-xl border-b border-gray-800 px-4 py-4">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
 
-          <Link
-            to="/"
-            className="text-2xl font-black bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent"
-          >
-            Servidor Uverley
-          </Link>
+          <Logo />
 
           <button
             onClick={handleLogout}
@@ -166,29 +162,29 @@ function OrdersPage() {
 
         <div className="grid md:grid-cols-2 gap-6 mb-10">
 
-          <div className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-blue-800/50 rounded-2xl p-7">
+          <div className="bg-gray-950 border border-blue-800/60 rounded-2xl p-7">
             <p className="text-gray-400 mb-2">
               Mis pedidos
             </p>
 
-            <h1 className="text-4xl font-black">
+            <h1 className="text-4xl font-bold">
               {orders.length}
             </h1>
           </div>
 
-          <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-7">
+          <div className="bg-gray-950 border border-gray-800 rounded-2xl p-7">
             <p className="text-gray-400 mb-2">
               Mi saldo
             </p>
 
-            <h2 className="text-4xl font-black text-green-400">
+            <h2 className="text-4xl font-bold text-green-400">
               {formatPrice(balance)}
             </h2>
           </div>
 
         </div>
 
-        <h2 className="text-3xl font-black mb-6">
+        <h2 className="text-3xl font-bold mb-6">
           Historial de pedidos
         </h2>
 
@@ -202,7 +198,7 @@ function OrdersPage() {
 
         ) : orders.length === 0 ? (
 
-          <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-12 text-center">
+          <div className="bg-gray-950 border border-gray-800 rounded-2xl p-12 text-center">
 
             <Package
               size={60}
@@ -234,7 +230,7 @@ function OrdersPage() {
 
               <div
                 key={order.id}
-                className="bg-gray-900/70 border border-gray-800 rounded-2xl p-6"
+                className="bg-gray-950 border border-gray-800 rounded-2xl p-6"
               >
 
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
@@ -257,7 +253,7 @@ function OrdersPage() {
 
                   <div className="text-left md:text-right">
 
-                    <p className="text-2xl font-black text-green-400 mb-3">
+                    <p className="text-2xl font-bold text-green-400 mb-3 font-mono">
                       {formatPrice(order.price)}
                     </p>
 

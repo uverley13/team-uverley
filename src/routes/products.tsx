@@ -10,6 +10,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { Logo } from '../components/Logo'
 
 export const Route = createFileRoute('/products')({
   component: ProductsPage,
@@ -259,17 +260,12 @@ function ProductsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <header className="bg-gray-900 border-b border-gray-800 px-6 py-4">
+      <header className="bg-black/80 backdrop-blur-xl border-b border-gray-800 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
-            <Link
-              to="/dashboard"
-              className="text-2xl font-black bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent"
-            >
-              Team Uverley
-            </Link>
+            <Logo />
 
-            <p className="text-gray-400 text-sm">
+            <p className="text-gray-400 text-sm mt-1">
               Administrar productos
             </p>
           </div>
@@ -285,8 +281,8 @@ function ProductsPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-10">
-        <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-6 mb-10">
-          <h1 className="text-3xl font-black mb-2">
+        <div className="bg-gray-950 border border-gray-800 rounded-2xl p-6 mb-10">
+          <h1 className="text-3xl font-bold mb-2">
             {editingId
               ? 'Editar producto'
               : 'Agregar producto'}
@@ -383,12 +379,12 @@ function ProductsPage() {
           </form>
         </div>
 
-        <h2 className="text-2xl font-black mb-6">
+        <h2 className="text-2xl font-bold mb-6">
           Productos existentes
         </h2>
 
         {products.length === 0 ? (
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-10 text-center text-gray-400">
+          <div className="bg-gray-950 border border-gray-800 rounded-2xl p-10 text-center text-gray-400">
             Todavía no hay productos.
           </div>
         ) : (
@@ -396,7 +392,7 @@ function ProductsPage() {
             {products.map((product) => (
               <div
                 key={product.id}
-                className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden"
+                className="bg-gray-950 border border-gray-800 rounded-2xl overflow-hidden"
               >
                 {product.image_url ? (
                   <img
@@ -431,7 +427,7 @@ function ProductsPage() {
                     {product.description}
                   </p>
 
-                  <p className="text-green-400 text-2xl font-black mt-4">
+                  <p className="text-green-400 text-2xl font-bold mt-4">
                     ${product.price}
                   </p>
 

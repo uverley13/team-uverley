@@ -9,6 +9,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { Logo } from '../components/Logo'
 
 export const Route = createFileRoute('/topup')({
   component: TopupPage,
@@ -209,14 +210,9 @@ function TopupPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <header className="bg-gray-900/90 border-b border-gray-800 px-4 py-4">
+      <header className="bg-black/80 backdrop-blur-xl border-b border-gray-800 px-4 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <Link
-            to="/"
-            className="text-2xl font-black bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent"
-          >
-            Servidor Uverley
-          </Link>
+          <Logo />
 
           <Link
             to="/"
@@ -230,7 +226,7 @@ function TopupPage() {
 
       <main className="max-w-3xl mx-auto px-4 py-10">
         {/* SALDO */}
-        <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-6 mb-6">
+        <div className="bg-gray-950 border border-gray-800 rounded-2xl p-6 mb-6">
           <div className="flex items-center gap-4">
             <div className="bg-blue-600/20 p-4 rounded-xl">
               <Wallet className="text-blue-400" size={32} />
@@ -241,7 +237,7 @@ function TopupPage() {
                 Saldo disponible
               </p>
 
-              <p className="text-3xl font-black text-green-400">
+              <p className="text-3xl font-bold text-green-400">
                 {formatPrice(balance)}
               </p>
             </div>
@@ -249,8 +245,8 @@ function TopupPage() {
         </div>
 
         {/* RECARGA */}
-        <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-8">
-          <h1 className="text-3xl font-black mb-2">
+        <div className="bg-gray-950 border border-gray-800 rounded-2xl p-8">
+          <h1 className="text-3xl font-bold mb-2">
             Recargar saldo
           </h1>
 
@@ -259,16 +255,16 @@ function TopupPage() {
           </p>
 
           {/* NEQUI */}
-          <div className="bg-gradient-to-r from-purple-900/40 to-blue-900/40 border border-purple-700/50 rounded-2xl p-6 mb-8">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-8">
             <p className="text-gray-400 text-sm mb-2">
               Realiza el pago por Nequi a:
             </p>
 
-            <p className="text-2xl font-black">
+            <p className="text-2xl font-bold">
               {NEQUI_NAME}
             </p>
 
-            <p className="text-3xl font-black text-green-400 mt-2">
+            <p className="text-3xl font-bold text-green-400 mt-2">
               {NEQUI_NUMBER}
             </p>
 

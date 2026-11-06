@@ -1,13 +1,17 @@
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim()
+// Netlify's Supabase integration exposes the key as VITE_SUPABASE_PUBLISHABLE_KEY;
+// VITE_SUPABASE_ANON_KEY is kept as a fallback for older setups.
+const supabaseKey = (
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY
+)?.trim()
 
-const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey)
+export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseKey)
 
 if (!hasSupabaseConfig) {
   console.error(
-    'Supabase no está configurado. Define VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en Netlify.',
+    'Supabase no está configurado. Define VITE_SUPABASE_URL y VITE_SUPABASE_PUBLISHABLE_KEY en Netlify.',
   )
 }
 
@@ -15,5 +19,5 @@ if (!hasSupabaseConfig) {
 // Database/auth calls will return errors until the real variables are set.
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-anon-key',
+  supabaseKey || 'placeholder-key',
 )
