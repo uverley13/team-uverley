@@ -1,88 +1,43 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  Eye,
-  EyeOff,
-  ArrowLeft,
-  Upload,
-} from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowLeft, Eye, EyeOff, Pencil, Plus, Smartphone, Trash2, Upload, X } from 'lucide-react'
+import { Logo } from '../components/Logo'
+import { errorMessage, formatPrice, useSession } from '../lib/session'
+import { adminDeleteProduct, adminListProducts, adminSaveProduct, adminToggleProduct, type ProductDTO } from '../server/store.functions'
 
 export const Route = createFileRoute('/products')({
+  head: () => ({ meta: [{ title: 'Servicios · Servidor Uverley' }] }),
   component: ProductsPage,
 })
 
-type Product = {
-  id: string
-  name: string
-  description: string | null
-  price: number
-  image_url: string | null
-  active: boolean
-  created_at: string
-  updated_at: string
-}
+const fieldClass = 'w-full rounded-lg border border-gray-800 bg-gray-900 px-4 py-3 focus:border-blue-500 focus:outline-none'
 
 function ProductsPage() {
   const navigate = useNavigate()
-
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
+  const { session, ready } = useSession()
+  const [products, setProducts] = useState<ProductDTO[] | null>(null)
   const [saving, setSaving] = useState(false)
-
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [price, setPrice] = useState('')
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [currentImage, setCurrentImage] = useState<string | null>(null)
+  const [currentImage, setCurrentImage] = useState<{ key: string; url: string } | null>(null)
+  const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
-    checkAdmin()
-  }, [])
-
-  async function checkAdmin() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      navigate({ to: '/login' })
-      return
-    }
-
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (error || !profile || profile.role !== 'admin') {
-      navigate({ to: '/' })
-      return
-    }
-
-    await loadProducts()
-  }
+    if (!ready) return
+    if (!session) navigate({ to: '/login' })
+    else if (!session.isAdmin) navigate({ to: '/' })
+    else void loadProducts()
+  }, [ready, session?.id, session?.isAdmin])
 
   async function loadProducts() {
-    setLoading(true)
-
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      alert('No se pudieron cargar los productos: ' + error.message)
-    } else {
-      setProducts(data ?? [])
+    try {
+      setProducts(await adminListProducts())
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error, 'No se pudieron cargar los servicios.') })
     }
-
-    setLoading(false)
   }
 
   function clearForm() {
@@ -92,391 +47,137 @@ function ProductsPage() {
     setPrice('')
     setImageFile(null)
     setCurrentImage(null)
+    const input = document.getElementById('image') as HTMLInputElement | null
+    if (input) input.value = ''
   }
 
-  function editProduct(product: Product) {
+  function editProduct(product: ProductDTO) {
     setEditingId(product.id)
     setName(product.name)
     setDescription(product.description ?? '')
     setPrice(String(product.price))
-    setCurrentImage(product.image_url)
     setImageFile(null)
-
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth',
-    })
+    setCurrentImage(product.imageKey && product.imageUrl ? { key: product.imageKey, url: product.imageUrl } : null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function uploadImage(file: File) {
-    const extension =
-      file.name.split('.').pop()?.toLowerCase() || 'jpg'
-
-    const fileName = `${crypto.randomUUID()}.${extension}`
-
-    const { error } = await supabase.storage
-      .from('product-images')
-      .upload(fileName, file, {
-        cacheControl: '3600',
-        upsert: false,
-      })
-
-    if (error) {
-      throw new Error(
-        'No se pudo subir la imagen: ' + error.message
-      )
-    }
-
-    const { data } = supabase.storage
-      .from('product-images')
-      .getPublicUrl(fileName)
-
-    return data.publicUrl
+    const body = new FormData()
+    body.set('image', file)
+    const response = await fetch('/api/product-images', { method: 'POST', body })
+    const result = (await response.json().catch(() => ({}))) as { key?: string; error?: string }
+    if (!response.ok || !result.key) throw new Error(result.error || 'No se pudo subir la imagen.')
+    return result.key
   }
 
   async function saveProduct(e: React.FormEvent) {
     e.preventDefault()
-
-    if (!name.trim()) {
-      alert('Escribe el nombre del producto.')
-      return
-    }
-
-    const numericPrice = Number(price)
-
-    if (Number.isNaN(numericPrice) || numericPrice < 0) {
-      alert('Escribe un precio válido.')
-      return
-    }
-
+    setNotice(null)
+    const numericPrice = Number(price.replace(/\D/g, ''))
+    if (!name.trim()) return setNotice({ kind: 'error', text: 'Escribe el nombre del servicio.' })
+    if (!numericPrice) return setNotice({ kind: 'error', text: 'Escribe un precio válido.' })
     setSaving(true)
-
     try {
-      let imageUrl = currentImage
-
-      if (imageFile) {
-        imageUrl = await uploadImage(imageFile)
-      }
-
-      if (editingId) {
-        const { error } = await supabase
-          .from('products')
-          .update({
-            name: name.trim(),
-            description: description.trim(),
-            price: numericPrice,
-            image_url: imageUrl,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', editingId)
-
-        if (error) {
-          throw new Error(error.message)
-        }
-
-        alert('Producto actualizado correctamente.')
-      } else {
-        const { error } = await supabase
-          .from('products')
-          .insert({
-            name: name.trim(),
-            description: description.trim(),
-            price: numericPrice,
-            image_url: imageUrl,
-            active: true,
-          })
-
-        if (error) {
-          throw new Error(error.message)
-        }
-
-        alert('Producto creado correctamente.')
-      }
-
+      const imageKey = imageFile ? await uploadImage(imageFile) : currentImage?.key ?? null
+      const existing = products?.find(p => p.id === editingId)
+      await adminSaveProduct({
+        data: { id: editingId ?? undefined, name, description, price: numericPrice, imageKey, active: existing?.active ?? true },
+      })
+      setNotice({ kind: 'success', text: editingId ? 'Servicio actualizado.' : 'Servicio creado y publicado.' })
       clearForm()
       await loadProducts()
     } catch (error) {
-      alert(
-        error instanceof Error
-          ? error.message
-          : 'Ocurrió un error inesperado.'
-      )
+      setNotice({ kind: 'error', text: errorMessage(error, 'No se pudo guardar el servicio.') })
     } finally {
       setSaving(false)
     }
   }
 
-  async function toggleProduct(product: Product) {
-    const { error } = await supabase
-      .from('products')
-      .update({
-        active: !product.active,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', product.id)
-
-    if (error) {
-      alert(
-        'No se pudo cambiar el estado: ' + error.message
-      )
-      return
+  async function toggle(product: ProductDTO) {
+    try {
+      const updated = await adminToggleProduct({ data: { id: product.id, active: !product.active } })
+      setProducts(current => current?.map(p => (p.id === updated.id ? updated : p)) ?? null)
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) })
     }
-
-    await loadProducts()
   }
 
-  async function deleteProduct(product: Product) {
-    const confirmed = window.confirm(
-      `¿Seguro que quieres eliminar "${product.name}"?`
-    )
-
-    if (!confirmed) return
-
-    const { error } = await supabase
-      .from('products')
-      .delete()
-      .eq('id', product.id)
-
-    if (error) {
-      alert(
-        'No se pudo eliminar el producto: ' + error.message
-      )
-      return
+  async function remove(product: ProductDTO) {
+    if (!window.confirm(`¿Eliminar "${product.name}"? Los pedidos anteriores se conservan.`)) return
+    try {
+      await adminDeleteProduct({ data: { id: product.id } })
+      if (editingId === product.id) clearForm()
+      setProducts(current => current?.filter(p => p.id !== product.id) ?? null)
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) })
     }
-
-    await loadProducts()
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p className="text-gray-400">
-          Cargando productos...
-        </p>
-      </div>
-    )
-  }
+  const filePreview = useMemo(() => (imageFile ? URL.createObjectURL(imageFile) : null), [imageFile])
+  useEffect(() => () => { if (filePreview) URL.revokeObjectURL(filePreview) }, [filePreview])
+  const preview = filePreview ?? currentImage?.url
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <header className="bg-gray-900 border-b border-gray-800 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div>
-            <Link
-              to="/dashboard"
-              className="text-2xl font-black bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent"
-            >
-              Team Uverley
-            </Link>
-
-            <p className="text-gray-400 text-sm">
-              Administrar productos
-            </p>
-          </div>
-
-          <Link
-            to="/dashboard"
-            className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg text-sm"
-          >
-            <ArrowLeft size={16} />
-            Dashboard
-          </Link>
+    <div className="min-h-screen bg-black text-gray-100">
+      <header className="border-b border-gray-900 bg-black/80 px-5 py-4 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-6xl items-center justify-between">
+          <div className="flex items-center gap-3"><Logo /><span className="hidden rounded-md bg-blue-600/20 px-2 py-1 font-mono text-xs text-blue-300 sm:inline">servicios</span></div>
+          <Link to="/dashboard" className="inline-flex items-center gap-2 rounded-lg border border-gray-800 px-4 py-2 text-sm hover:border-gray-600"><ArrowLeft size={16} /> Panel</Link>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-10">
-        <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-6 mb-10">
-          <h1 className="text-3xl font-black mb-2">
-            {editingId
-              ? 'Editar producto'
-              : 'Agregar producto'}
-          </h1>
-
-          <p className="text-gray-400 mb-6">
-            Administra los productos que aparecen en tu página.
-          </p>
-
-          <form
-            onSubmit={saveProduct}
-            className="space-y-4"
-          >
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Nombre del producto"
-              className="w-full bg-gray-800 border border-gray-700 text-white p-4 rounded-lg"
-              required
-            />
-
-            <textarea
-              value={description}
-              onChange={(e) =>
-                setDescription(e.target.value)
-              }
-              placeholder="Descripción"
-              rows={3}
-              className="w-full bg-gray-800 border border-gray-700 text-white p-4 rounded-lg"
-            />
-
-            <input
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Precio"
-              className="w-full bg-gray-800 border border-gray-700 text-white p-4 rounded-lg"
-              required
-            />
-
-            <div className="border border-gray-700 rounded-lg p-4">
-              <label className="flex items-center gap-2 text-gray-300 mb-3">
-                <Upload size={18} />
-                Imagen del producto
-              </label>
-
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) =>
-                  setImageFile(
-                    e.target.files?.[0] ?? null
-                  )
-                }
-                className="w-full text-gray-300"
-              />
-
-              {currentImage && (
-                <img
-                  src={currentImage}
-                  alt="Imagen actual"
-                  className="mt-4 w-32 h-32 object-cover rounded-lg border border-gray-700"
-                />
-              )}
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                disabled={saving}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-6 py-4 rounded-lg font-bold flex items-center justify-center gap-2"
-              >
-                <Plus size={20} />
-
-                {saving
-                  ? 'Guardando...'
-                  : editingId
-                    ? 'Guardar cambios'
-                    : 'Agregar producto'}
-              </button>
-
-              {editingId && (
-                <button
-                  type="button"
-                  onClick={clearForm}
-                  className="bg-gray-700 hover:bg-gray-600 px-6 rounded-lg font-bold"
-                >
-                  Cancelar
-                </button>
-              )}
-            </div>
-          </form>
-        </div>
-
-        <h2 className="text-2xl font-black mb-6">
-          Productos existentes
-        </h2>
-
-        {products.length === 0 ? (
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-10 text-center text-gray-400">
-            Todavía no hay productos.
+      <main className="mx-auto grid max-w-6xl gap-8 px-5 py-10 lg:grid-cols-[380px_1fr]">
+        <form onSubmit={saveProduct} className="h-fit space-y-4 rounded-2xl border border-gray-800 bg-gray-950 p-6 lg:sticky lg:top-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold">{editingId ? 'Editar servicio' : 'Nuevo servicio'}</h1>
+            {editingId && <button type="button" onClick={clearForm} className="text-gray-400 hover:text-gray-100" aria-label="Cancelar edición"><X size={18} /></button>}
           </div>
-        ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {products.map((product) => (
-              <div
-                key={product.id}
-                className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden"
-              >
-                {product.image_url ? (
-                  <img
-                    src={product.image_url}
-                    alt={product.name}
-                    className="w-full h-48 object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-48 bg-gray-800 flex items-center justify-center text-gray-500">
-                    Sin imagen
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Nombre del servicio" className={fieldClass} required />
+          <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Descripción (qué incluye, tiempo estimado…)" rows={4} className={fieldClass} />
+          <input value={price} onChange={e => setPrice(e.target.value)} placeholder="Precio en COP" inputMode="numeric" className={fieldClass} required />
+          <label htmlFor="image" className="flex cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-gray-800 bg-gray-900 text-center hover:border-blue-500">
+            {preview ? (
+              <img src={preview} alt="Vista previa" className="h-40 w-full object-cover" />
+            ) : (
+              <div className="p-6"><Upload size={28} className="mx-auto mb-2 text-blue-400" /><p className="text-sm text-gray-400">Imagen del servicio (opcional, máx. 5 MB)</p></div>
+            )}
+            <input id="image" type="file" accept="image/*" className="hidden" onChange={e => setImageFile(e.target.files?.[0] ?? null)} />
+          </label>
+          {currentImage && !imageFile && <button type="button" onClick={() => setCurrentImage(null)} className="text-sm text-red-300 hover:text-red-200">Quitar imagen</button>}
+          {notice && <p role="status" className={`rounded-lg border px-4 py-3 text-sm ${notice.kind === 'success' ? 'border-green-800 bg-green-900/40 text-green-200' : 'border-red-900 bg-red-950/50 text-red-300'}`}>{notice.text}</p>}
+          <button type="submit" disabled={saving} className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 font-semibold text-white hover:bg-blue-500 disabled:opacity-60">
+            <Plus size={18} /> {saving ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Crear servicio'}
+          </button>
+        </form>
+
+        <section>
+          <h2 className="mb-5 text-2xl font-bold">Catálogo <span className="font-mono text-base text-gray-500">{products?.length ?? ''}</span></h2>
+          {!products ? (
+            <div className="space-y-3">{[0, 1, 2].map(i => <div key={i} className="skeleton h-24 rounded-xl" />)}</div>
+          ) : products.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-gray-800 p-10 text-center text-gray-400">Aún no hay servicios. Crea el primero con el formulario.</p>
+          ) : (
+            <div className="space-y-3">
+              {products.map(product => (
+                <div key={product.id} className={`flex items-center gap-4 rounded-xl border bg-gray-950 p-3 ${product.active ? 'border-gray-800' : 'border-gray-900 opacity-60'}`}>
+                  <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-gray-900">
+                    {product.imageUrl ? <img src={product.imageUrl} alt="" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center"><Smartphone className="text-gray-700" /></div>}
                   </div>
-                )}
-
-                <div className="p-5">
-                  <div className="flex justify-between items-start gap-3">
-                    <h3 className="text-xl font-bold">
-                      {product.name}
-                    </h3>
-
-                    {product.active ? (
-                      <span className="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">
-                        Activo
-                      </span>
-                    ) : (
-                      <span className="text-xs bg-red-900 text-red-300 px-2 py-1 rounded">
-                        Inactivo
-                      </span>
-                    )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{product.name}</p>
+                    <p className="font-mono text-sm text-green-400">{formatPrice(product.price)}</p>
+                    <p className="text-xs text-gray-500">{product.active ? 'Visible en la tienda' : 'Oculto'}</p>
                   </div>
-
-                  <p className="text-gray-400 text-sm mt-2 min-h-10">
-                    {product.description}
-                  </p>
-
-                  <p className="text-green-400 text-2xl font-black mt-4">
-                    ${product.price}
-                  </p>
-
-                  <div className="grid grid-cols-3 gap-2 mt-5">
-                    <button
-                      onClick={() => editProduct(product)}
-                      className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg flex justify-center"
-                      title="Editar"
-                    >
-                      <Pencil size={18} />
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        toggleProduct(product)
-                      }
-                      className="bg-gray-700 hover:bg-gray-600 p-3 rounded-lg flex justify-center"
-                      title={
-                        product.active
-                          ? 'Desactivar'
-                          : 'Activar'
-                      }
-                    >
-                      {product.active ? (
-                        <EyeOff size={18} />
-                      ) : (
-                        <Eye size={18} />
-                      )}
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        deleteProduct(product)
-                      }
-                      className="bg-red-700 hover:bg-red-800 p-3 rounded-lg flex justify-center"
-                      title="Eliminar"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                  <div className="flex gap-1">
+                    <button onClick={() => void toggle(product)} className="rounded-lg p-2.5 text-gray-400 hover:bg-gray-900 hover:text-gray-100" title={product.active ? 'Ocultar' : 'Mostrar'} aria-label={product.active ? 'Ocultar' : 'Mostrar'}>{product.active ? <Eye size={18} /> : <EyeOff size={18} />}</button>
+                    <button onClick={() => editProduct(product)} className="rounded-lg p-2.5 text-gray-400 hover:bg-gray-900 hover:text-gray-100" title="Editar" aria-label="Editar"><Pencil size={18} /></button>
+                    <button onClick={() => void remove(product)} className="rounded-lg p-2.5 text-red-400 hover:bg-red-950/50" title="Eliminar" aria-label="Eliminar"><Trash2 size={18} /></button>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </section>
       </main>
     </div>
   )

@@ -8,14 +8,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@netlify/blobs": "^11.1.7",
+    "@netlify/database": "^2.0.2",
+    "@netlify/identity": "^2.0.0",
     "@tailwindcss/vite": "^4.0.6",
     "@tanstack/react-router": "^1.163.3",
     "@tanstack/react-start": "^1.166.1",
     "@tanstack/react-store": "^0.9.1",
     "@tanstack/router-plugin": "^1.164.0",
     "@tanstack/store": "^0.9.1",
+    "drizzle-orm": "^1.0.0-beta.22",
     "lucide-react": "^0.576.0",
-    "@supabase/supabase-js": "^2.57.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwindcss": "^4.0.6",
@@ -28,10 +31,11 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "drizzle-kit": "^1.0.0-beta.22",
     "lucide-react": "^0.576.0",
+    "rimraf": "^6.0.1",
     "tailwindcss": "^4.0.6",
     "typescript": "^5.7.2",
-    "rimraf": "^6.0.1",
     "vite": "^7.1.7"
   }
 }
