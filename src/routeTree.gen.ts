@@ -18,6 +18,10 @@ import { Route as FaqRouteImport } from './routes/faq'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiTopupsRouteImport } from './routes/api/topups'
+import { Route as ApiProductImagesRouteImport } from './routes/api/product-images'
+import { Route as ApiProofsKeyRouteImport } from './routes/api/proofs.$key'
+import { Route as ApiImagesKeyRouteImport } from './routes/api/images.$key'
 
 const TopupRoute = TopupRouteImport.update({
   id: '/topup',
@@ -64,6 +68,26 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiTopupsRoute = ApiTopupsRouteImport.update({
+  id: '/api/topups',
+  path: '/api/topups',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiProductImagesRoute = ApiProductImagesRouteImport.update({
+  id: '/api/product-images',
+  path: '/api/product-images',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiProofsKeyRoute = ApiProofsKeyRouteImport.update({
+  id: '/api/proofs/$key',
+  path: '/api/proofs/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiImagesKeyRoute = ApiImagesKeyRouteImport.update({
+  id: '/api/images/$key',
+  path: '/api/images/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -75,6 +99,10 @@ export interface FileRoutesByFullPath {
   '/products': typeof ProductsRoute
   '/register': typeof RegisterRoute
   '/topup': typeof TopupRoute
+  '/api/product-images': typeof ApiProductImagesRoute
+  '/api/topups': typeof ApiTopupsRoute
+  '/api/images/$key': typeof ApiImagesKeyRoute
+  '/api/proofs/$key': typeof ApiProofsKeyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -86,6 +114,10 @@ export interface FileRoutesByTo {
   '/products': typeof ProductsRoute
   '/register': typeof RegisterRoute
   '/topup': typeof TopupRoute
+  '/api/product-images': typeof ApiProductImagesRoute
+  '/api/topups': typeof ApiTopupsRoute
+  '/api/images/$key': typeof ApiImagesKeyRoute
+  '/api/proofs/$key': typeof ApiProofsKeyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,6 +130,10 @@ export interface FileRoutesById {
   '/products': typeof ProductsRoute
   '/register': typeof RegisterRoute
   '/topup': typeof TopupRoute
+  '/api/product-images': typeof ApiProductImagesRoute
+  '/api/topups': typeof ApiTopupsRoute
+  '/api/images/$key': typeof ApiImagesKeyRoute
+  '/api/proofs/$key': typeof ApiProofsKeyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,6 +147,10 @@ export interface FileRouteTypes {
     | '/products'
     | '/register'
     | '/topup'
+    | '/api/product-images'
+    | '/api/topups'
+    | '/api/images/$key'
+    | '/api/proofs/$key'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,6 +162,10 @@ export interface FileRouteTypes {
     | '/products'
     | '/register'
     | '/topup'
+    | '/api/product-images'
+    | '/api/topups'
+    | '/api/images/$key'
+    | '/api/proofs/$key'
   id:
     | '__root__'
     | '/'
@@ -133,6 +177,10 @@ export interface FileRouteTypes {
     | '/products'
     | '/register'
     | '/topup'
+    | '/api/product-images'
+    | '/api/topups'
+    | '/api/images/$key'
+    | '/api/proofs/$key'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -145,6 +193,10 @@ export interface RootRouteChildren {
   ProductsRoute: typeof ProductsRoute
   RegisterRoute: typeof RegisterRoute
   TopupRoute: typeof TopupRoute
+  ApiProductImagesRoute: typeof ApiProductImagesRoute
+  ApiTopupsRoute: typeof ApiTopupsRoute
+  ApiImagesKeyRoute: typeof ApiImagesKeyRoute
+  ApiProofsKeyRoute: typeof ApiProofsKeyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -212,6 +264,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/topups': {
+      id: '/api/topups'
+      path: '/api/topups'
+      fullPath: '/api/topups'
+      preLoaderRoute: typeof ApiTopupsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/product-images': {
+      id: '/api/product-images'
+      path: '/api/product-images'
+      fullPath: '/api/product-images'
+      preLoaderRoute: typeof ApiProductImagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/proofs/$key': {
+      id: '/api/proofs/$key'
+      path: '/api/proofs/$key'
+      fullPath: '/api/proofs/$key'
+      preLoaderRoute: typeof ApiProofsKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/images/$key': {
+      id: '/api/images/$key'
+      path: '/api/images/$key'
+      fullPath: '/api/images/$key'
+      preLoaderRoute: typeof ApiImagesKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -225,6 +305,10 @@ const rootRouteChildren: RootRouteChildren = {
   ProductsRoute: ProductsRoute,
   RegisterRoute: RegisterRoute,
   TopupRoute: TopupRoute,
+  ApiProductImagesRoute: ApiProductImagesRoute,
+  ApiTopupsRoute: ApiTopupsRoute,
+  ApiImagesKeyRoute: ApiImagesKeyRoute,
+  ApiProofsKeyRoute: ApiProofsKeyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

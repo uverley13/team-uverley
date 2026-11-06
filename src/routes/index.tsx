@@ -16,12 +16,13 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { formatPrice, errorMessage, useSession } from '../lib/session'
+import { createOrder as createOrderFn, listActiveProducts, type ProductDTO } from '../server/store.functions'
 import { Logo } from '../components/Logo'
 
 export const Route = createFileRoute('/')({ component: Home })
 
-type Product = { id: number; name: string; description: string | null; price: number; image_url: string | null; active: boolean }
+type Product = ProductDTO
 type Toast = { kind: 'success' | 'error'; text: string } | null
 
 const WA_NUMBER = '573172329884'
@@ -31,10 +32,6 @@ function waLink(service?: string) {
     ? `Hola Servidor Uverley, quiero el servicio de ${service}`
     : 'Hola Servidor Uverley, quiero información sobre sus servicios'
   return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`
-}
-
-function formatPrice(price: number) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(price)
 }
 
 const steps = [
@@ -56,17 +53,15 @@ function Home() {
   const [products, setProducts] = useState<Product[]>([])
   const [loadingProducts, setLoadingProducts] = useState(true)
   const [orderingId, setOrderingId] = useState<number | null>(null)
-  const [user, setUser] = useState<Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user']>(null)
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [checkingUser, setCheckingUser] = useState(true)
+  const { session, ready, refresh, logout } = useSession()
+  const user = session
+  const isAdmin = Boolean(session?.isAdmin)
+  const checkingUser = !ready
   const [menuOpen, setMenuOpen] = useState(false)
   const [toast, setToast] = useState<Toast>(null)
 
   useEffect(() => {
     void loadProducts()
-    void checkUser()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => { void checkUser() })
-    return () => subscription.unsubscribe()
   }, [])
 
   useEffect(() => {
@@ -75,34 +70,10 @@ function Home() {
     return () => window.clearTimeout(timer)
   }, [toast])
 
-  async function checkUser() {
-    setCheckingUser(true)
-    try {
-      const { data: { user: currentUser } } = await supabase.auth.getUser()
-      setUser(currentUser)
-      if (currentUser) {
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', currentUser.id).maybeSingle()
-        setIsAdmin(profile?.role === 'admin')
-      } else setIsAdmin(false)
-    } catch (error) {
-      console.error('Error al verificar usuario:', error)
-      setUser(null)
-      setIsAdmin(false)
-    } finally {
-      setCheckingUser(false)
-    }
-  }
-
   async function loadProducts() {
     setLoadingProducts(true)
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, name, description, price, image_url, active')
-        .eq('active', true)
-        .order('created_at', { ascending: false })
-      if (error) throw error
-      setProducts((data ?? []) as Product[])
+      setProducts(await listActiveProducts())
     } catch (error) {
       console.error('Error cargando productos:', error)
       setProducts([])
@@ -112,30 +83,29 @@ function Home() {
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut()
-    setUser(null)
-    setIsAdmin(false)
+    await logout()
+    setMenuOpen(false)
     navigate({ to: '/' })
   }
 
   async function createOrder(product: Product) {
+    if (!session) {
+      navigate({ to: '/login' })
+      return
+    }
+    if (session.balance < product.price) {
+      setToast({ kind: 'error', text: `Saldo insuficiente: tienes ${formatPrice(session.balance)} y el servicio cuesta ${formatPrice(product.price)}. Recarga desde "Mi cuenta".` })
+      return
+    }
+    if (!window.confirm(`¿Confirmas el pedido de "${product.name}" por ${formatPrice(product.price)}? Se descontará de tu saldo.`)) return
     setOrderingId(product.id)
     try {
-      const { data: { user: currentUser } } = await supabase.auth.getUser()
-      if (!currentUser) {
-        navigate({ to: '/login' })
-        return
-      }
-      const { error } = await supabase.rpc('create_order_with_balance', { p_product_id: product.id })
-      if (error) {
-        setToast({ kind: 'error', text: `No se pudo crear el pedido: ${error.message}` })
-        return
-      }
-      setToast({ kind: 'success', text: `Pedido creado: ${product.name} · ${formatPrice(Number(product.price))}. Te abrimos WhatsApp para coordinar.` })
-      window.open(waLink(product.name), '_blank', 'noopener,noreferrer')
+      const result = await createOrderFn({ data: { productId: product.id } })
+      await refresh()
+      setToast({ kind: 'success', text: `Pedido #${result.order.id} creado: ${product.name}. Saldo restante ${formatPrice(result.balance)}. Te abrimos WhatsApp para coordinar.` })
+      window.open(waLink(`${product.name} (pedido #${result.order.id})`), '_blank', 'noopener,noreferrer')
     } catch (error) {
-      console.error(error)
-      setToast({ kind: 'error', text: 'Ocurrió un error al crear el pedido. Intenta de nuevo.' })
+      setToast({ kind: 'error', text: errorMessage(error, 'No se pudo crear el pedido. Intenta de nuevo.') })
     } finally {
       setOrderingId(null)
     }
@@ -168,6 +138,11 @@ function Home() {
               <span className="skeleton hidden h-9 w-28 rounded-lg sm:block" />
             ) : user ? (
               <>
+                {!isAdmin && (
+                  <Link to="/topup" className="hidden items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 font-mono text-sm text-green-400 hover:bg-gray-800 lg:inline-flex" title="Saldo disponible · Recargar">
+                    <Wallet size={14} /> {formatPrice(user.balance)}
+                  </Link>
+                )}
                 <Link to={accountLink.to} className="hidden items-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm font-semibold transition-colors hover:border-gray-500 sm:inline-flex">
                   <accountLink.icon size={16} /> {accountLink.label}
                 </Link>
@@ -296,8 +271,8 @@ function Home() {
               {products.map(product => (
                 <article key={product.id} className="group flex flex-col overflow-hidden rounded-2xl border border-gray-800/80 bg-gray-950 transition-colors hover:border-gray-700">
                   <div className="relative h-44 overflow-hidden bg-gray-900">
-                    {product.image_url ? (
-                      <img src={product.image_url} alt={product.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+                    {product.imageUrl ? (
+                      <img src={product.imageUrl} alt={product.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
                     ) : (
                       <div className="bg-grid flex h-full items-center justify-center"><Smartphone size={44} className="text-gray-700" /></div>
                     )}
@@ -306,7 +281,7 @@ function Home() {
                     <h3 className="text-xl font-semibold">{product.name}</h3>
                     {product.description && <p className="mt-2 flex-1 text-sm leading-relaxed text-gray-400">{product.description}</p>}
                     <div className="mt-6 flex items-center justify-between gap-4 border-t border-gray-900 pt-5">
-                      <span className="font-mono text-lg font-medium text-gray-100">{formatPrice(Number(product.price))}</span>
+                      <span className="font-mono text-lg font-medium text-gray-100">{formatPrice(product.price)}</span>
                       <button
                         onClick={() => void createOrder(product)}
                         disabled={orderingId === product.id}

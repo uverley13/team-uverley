@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { UserPlus } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { AuthError, signup } from '@netlify/identity'
+import { errorMessage, useSession } from '../lib/session'
 import { AuthShell, Field, inputClass } from '../components/AuthShell'
 
 export const Route = createFileRoute('/register')({
@@ -10,6 +11,7 @@ export const Route = createFileRoute('/register')({
 
 function RegisterPage() {
   const navigate = useNavigate()
+  const { refresh } = useSession()
 
   const [form, setForm] = useState({
     email: '',
@@ -40,55 +42,26 @@ function RegisterPage() {
       return
     }
 
-    if (form.password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres.')
+    if (form.password.length < 8) {
+      setError('La contraseña debe tener al menos 8 caracteres.')
       return
     }
 
     setLoading(true)
 
     try {
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email: form.email,
-        password: form.password,
-        options: { data: { username: form.username.trim() } },
-      })
-
-      if (signUpError) {
-        setError(signUpError.message)
+      const user = await signup(form.email.trim(), form.password, { full_name: form.username.trim() })
+      if (user.confirmedAt) {
+        // Autoconfirm is enabled: the user is already signed in.
+        await refresh()
+        navigate({ to: '/' })
         return
       }
-
-      if (!data.user) {
-        setError('No se pudo crear la cuenta.')
-        return
-      }
-
-      if (!data.session) {
-        // Email confirmation is required: the profile is created on first login.
-        setMessage(
-          'Cuenta creada correctamente. Revisa tu correo para confirmar tu cuenta y luego inicia sesión.'
-        )
-        return
-      }
-
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .upsert({
-          id: data.user.id,
-          username: form.username.trim(),
-          role: 'customer',
-        })
-
-      if (profileError) {
-        console.error(profileError)
-        setError('La cuenta fue creada, pero no se pudo crear el perfil.')
-        return
-      }
-
-      navigate({ to: '/' })
-    } catch {
-      setError('Ocurrió un error al crear la cuenta.')
+      setMessage(`Te enviamos un correo a ${form.email.trim()}. Abre el enlace para confirmar tu cuenta; quedarás conectado automáticamente.`)
+    } catch (err) {
+      if (err instanceof AuthError && err.status === 403) setError('El registro está cerrado en este momento.')
+      else if (err instanceof AuthError && err.status === 422) setError('Revisa el correo y la contraseña. Puede que el correo ya esté registrado.')
+      else setError(errorMessage(err, 'Ocurrió un error al crear la cuenta.'))
     } finally {
       setLoading(false)
     }
@@ -115,7 +88,7 @@ function RegisterPage() {
           </Field>
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Contraseña" htmlFor="password">
-              <input id="password" name="password" type="password" autoComplete="new-password" placeholder="Mín. 6 caracteres" value={form.password} onChange={handleChange} className={inputClass} required minLength={6} />
+              <input id="password" name="password" type="password" autoComplete="new-password" placeholder="Mín. 8 caracteres" value={form.password} onChange={handleChange} className={inputClass} required minLength={8} />
             </Field>
             <Field label="Confirmar" htmlFor="confirm">
               <input id="confirm" name="confirm" type="password" autoComplete="new-password" placeholder="Repite la contraseña" value={form.confirm} onChange={handleChange} className={inputClass} required />

@@ -8,7 +8,7 @@ import {
   Clock,
   AlertCircle,
 } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { formatPrice, useSession } from '../lib/session'
 import { Logo } from '../components/Logo'
 
 export const Route = createFileRoute('/topup')({
@@ -24,53 +24,18 @@ const MAX_AMOUNT = 2000000
 function TopupPage() {
   const navigate = useNavigate()
 
-  const [user, setUser] = useState<any>(null)
-  const [balance, setBalance] = useState(0)
+  const { session, ready, refresh } = useSession()
+  const balance = session?.balance ?? 0
   const [amount, setAmount] = useState('')
   const [file, setFile] = useState<File | null>(null)
-  const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const loading = !ready
 
   useEffect(() => {
-    loadAccount()
-  }, [])
-
-  async function loadAccount() {
-    setLoading(true)
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      navigate({ to: '/login' })
-      return
-    }
-
-    setUser(user)
-
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('balance')
-      .eq('id', user.id)
-      .single()
-
-    if (!error) {
-      setBalance(Number(profile?.balance ?? 0))
-    }
-
-    setLoading(false)
-  }
-
-  function formatPrice(value: number) {
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      maximumFractionDigits: 0,
-    }).format(value)
-  }
+    if (ready && !session) navigate({ to: '/login' })
+  }, [ready, session?.id])
 
   function formatInput(value: string) {
     const numbers = value.replace(/\D/g, '')
@@ -129,7 +94,7 @@ function TopupPage() {
       return
     }
 
-    if (!user) {
+    if (!session) {
       navigate({ to: '/login' })
       return
     }
@@ -137,50 +102,20 @@ function TopupPage() {
     setSending(true)
 
     try {
-      const extension = file.name.split('.').pop() || 'jpg'
-
-      const fileName = `${user.id}/${Date.now()}.${extension}`
-
-      const { error: uploadError } = await supabase.storage
-        .from('topup-proofs')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false,
-        })
-
-      if (uploadError) {
-        throw new Error(
-          'No se pudo subir el comprobante: ' +
-            uploadError.message,
-        )
+      const body = new FormData()
+      body.set('amount', String(numericAmount))
+      body.set('proof', file)
+      const response = await fetch('/api/topups', { method: 'POST', body })
+      const result = (await response.json().catch(() => ({}))) as { error?: string }
+      if (!response.ok) {
+        throw new Error(result.error || 'No se pudo registrar la recarga.')
       }
-
-      const { data: publicUrlData } = supabase.storage
-        .from('topup-proofs')
-        .getPublicUrl(fileName)
-
-      const proofUrl = publicUrlData.publicUrl
-
-      const { error: insertError } = await supabase
-        .from('topups')
-        .insert({
-          user_id: user.id,
-          amount: numericAmount,
-          proof_url: proofUrl,
-          status: 'pending',
-        })
-
-      if (insertError) {
-        throw new Error(
-          'No se pudo registrar la recarga: ' +
-            insertError.message,
-        )
-      }
+      void refresh()
 
       setMessage(
         `Solicitud enviada correctamente por ${formatPrice(
           numericAmount,
-        )}. El administrador revisará tu comprobante.`,
+        )}. Revisaremos tu comprobante y acreditaremos el saldo. Puedes seguir el estado en "Mi cuenta".`,
       )
 
       setAmount('')
@@ -193,8 +128,8 @@ function TopupPage() {
       if (fileInput) {
         fileInput.value = ''
       }
-    } catch (err: any) {
-      setError(err.message || 'Ocurrió un error.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ocurrió un error.')
     } finally {
       setSending(false)
     }
@@ -215,11 +150,11 @@ function TopupPage() {
           <Logo />
 
           <Link
-            to="/"
-            className="flex items-center gap-2 text-gray-300 hover:text-white"
+            to="/account"
+            className="flex items-center gap-2 text-sm text-gray-300 hover:text-white"
           >
             <ArrowLeft size={18} />
-            Volver
+            Mi cuenta
           </Link>
         </div>
       </header>
@@ -333,7 +268,7 @@ function TopupPage() {
                 </p>
 
                 <p className="text-gray-500 text-sm mt-1">
-                  JPG, PNG — máximo 5 MB
+                  JPG, PNG o WEBP — máximo 5 MB
                 </p>
               </>
             )}

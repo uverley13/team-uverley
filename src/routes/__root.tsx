@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { createRootRoute, HeadContent, Link, Outlet, Scripts } from '@tanstack/react-router'
 
 import appCss from '../styles.css?url'
+import { SessionProvider } from '../lib/session'
+import { PasswordRecovery } from '../components/PasswordRecovery'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -35,7 +37,10 @@ function RootDocument({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        {children}
+        <SessionProvider>
+          {children}
+          <PasswordRecovery />
+        </SessionProvider>
         <Scripts />
       </body>
     </html>
