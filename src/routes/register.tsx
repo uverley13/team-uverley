@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { UserPlus } from 'lucide-react'
-import { AuthError, signup } from '@netlify/identity'
+import { login } from '@netlify/identity'
+import { registerAccount } from '../server/account.functions'
 import { errorMessage, useSession } from '../lib/session'
 import { AuthShell, Field, inputClass } from '../components/AuthShell'
 
@@ -50,18 +51,18 @@ function RegisterPage() {
     setLoading(true)
 
     try {
-      const user = await signup(form.email.trim(), form.password, { full_name: form.username.trim() })
-      if (user.confirmedAt) {
-        // Autoconfirm is enabled: the user is already signed in.
-        await refresh()
-        navigate({ to: '/' })
+      const email = form.email.trim()
+      await registerAccount({ data: { email, password: form.password, name: form.username.trim() } })
+      try {
+        await login(email, form.password)
+      } catch {
+        setMessage('Tu cuenta está lista. Inicia sesión con tu correo y contraseña.')
         return
       }
-      setMessage(`Te enviamos un correo a ${form.email.trim()}. Abre el enlace para confirmar tu cuenta; quedarás conectado automáticamente.`)
+      await refresh()
+      navigate({ to: '/' })
     } catch (err) {
-      if (err instanceof AuthError && err.status === 403) setError('El registro está cerrado en este momento.')
-      else if (err instanceof AuthError && err.status === 422) setError('Revisa el correo y la contraseña. Puede que el correo ya esté registrado.')
-      else setError(errorMessage(err, 'Ocurrió un error al crear la cuenta.'))
+      setError(errorMessage(err, 'Ocurrió un error al crear la cuenta.'))
     } finally {
       setLoading(false)
     }
@@ -75,8 +76,9 @@ function RegisterPage() {
     >
       {message ? (
         <div role="status" className="rounded-xl border border-green-800 bg-green-900/40 p-5 text-green-200">
-          <p className="font-semibold">Revisa tu correo</p>
+          <p className="font-semibold">Cuenta creada</p>
           <p className="mt-1 text-sm text-green-300/90">{message}</p>
+          <Link to="/login" className="mt-3 inline-block font-semibold text-blue-400 hover:text-blue-300">Ir a iniciar sesión</Link>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-5">

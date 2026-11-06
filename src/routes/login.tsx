@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { MessageCircle, LogIn } from 'lucide-react'
 import { AuthError, login, requestPasswordRecovery } from '@netlify/identity'
 import { errorMessage, useSession } from '../lib/session'
+import { confirmPendingAccount } from '../server/account.functions'
 import { AuthShell, Field, inputClass } from '../components/AuthShell'
 export const Route = createFileRoute('/login')({
   component: LoginPage,
@@ -27,15 +28,23 @@ function LoginPage() {
     try {
       if (forgot) {
         await requestPasswordRecovery(email.trim())
-        setInfo('Si el correo está registrado, te enviamos un enlace para crear una nueva contraseña.')
+        setInfo('Si el correo está registrado, te enviamos un enlace para crear una nueva contraseña. Puede tardar unos minutos: revisa también la carpeta de spam o correo no deseado. Si no llega, escríbenos por WhatsApp.')
         return
       }
-      await login(email.trim(), password)
+      const cleanEmail = email.trim()
+      try {
+        await login(cleanEmail, password)
+      } catch (err) {
+        // Accounts created before confirmation emails were dropped may still be pending.
+        if (!(err instanceof AuthError && (err.status === 400 || err.status === 401))) throw err
+        await confirmPendingAccount({ data: { email: cleanEmail } })
+        await login(cleanEmail, password)
+      }
       const session = await refresh()
       navigate({ to: session?.isAdmin ? '/dashboard' : '/' })
     } catch (err) {
       if (err instanceof AuthError && (err.status === 400 || err.status === 401)) {
-        setError('Correo o contraseña incorrectos, o la cuenta aún no está confirmada.')
+        setError('Correo o contraseña incorrectos.')
       } else {
         setError(errorMessage(err, 'Ocurrió un error al iniciar sesión.'))
       }
