@@ -22,6 +22,8 @@ import { Route as ApiTopupsRouteImport } from './routes/api/topups'
 import { Route as ApiProductImagesRouteImport } from './routes/api/product-images'
 import { Route as ApiProofsKeyRouteImport } from './routes/api/proofs.$key'
 import { Route as ApiImagesKeyRouteImport } from './routes/api/images.$key'
+import { Route as ApiExportTableRouteImport } from './routes/api/export.$table'
+import { Route as ApiBackupsKeyRouteImport } from './routes/api/backups.$key'
 
 const TopupRoute = TopupRouteImport.update({
   id: '/topup',
@@ -88,6 +90,16 @@ const ApiImagesKeyRoute = ApiImagesKeyRouteImport.update({
   path: '/api/images/$key',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiExportTableRoute = ApiExportTableRouteImport.update({
+  id: '/api/export/$table',
+  path: '/api/export/$table',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBackupsKeyRoute = ApiBackupsKeyRouteImport.update({
+  id: '/api/backups/$key',
+  path: '/api/backups/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -101,6 +113,8 @@ export interface FileRoutesByFullPath {
   '/topup': typeof TopupRoute
   '/api/product-images': typeof ApiProductImagesRoute
   '/api/topups': typeof ApiTopupsRoute
+  '/api/backups/$key': typeof ApiBackupsKeyRoute
+  '/api/export/$table': typeof ApiExportTableRoute
   '/api/images/$key': typeof ApiImagesKeyRoute
   '/api/proofs/$key': typeof ApiProofsKeyRoute
 }
@@ -116,6 +130,8 @@ export interface FileRoutesByTo {
   '/topup': typeof TopupRoute
   '/api/product-images': typeof ApiProductImagesRoute
   '/api/topups': typeof ApiTopupsRoute
+  '/api/backups/$key': typeof ApiBackupsKeyRoute
+  '/api/export/$table': typeof ApiExportTableRoute
   '/api/images/$key': typeof ApiImagesKeyRoute
   '/api/proofs/$key': typeof ApiProofsKeyRoute
 }
@@ -132,6 +148,8 @@ export interface FileRoutesById {
   '/topup': typeof TopupRoute
   '/api/product-images': typeof ApiProductImagesRoute
   '/api/topups': typeof ApiTopupsRoute
+  '/api/backups/$key': typeof ApiBackupsKeyRoute
+  '/api/export/$table': typeof ApiExportTableRoute
   '/api/images/$key': typeof ApiImagesKeyRoute
   '/api/proofs/$key': typeof ApiProofsKeyRoute
 }
@@ -149,6 +167,8 @@ export interface FileRouteTypes {
     | '/topup'
     | '/api/product-images'
     | '/api/topups'
+    | '/api/backups/$key'
+    | '/api/export/$table'
     | '/api/images/$key'
     | '/api/proofs/$key'
   fileRoutesByTo: FileRoutesByTo
@@ -164,6 +184,8 @@ export interface FileRouteTypes {
     | '/topup'
     | '/api/product-images'
     | '/api/topups'
+    | '/api/backups/$key'
+    | '/api/export/$table'
     | '/api/images/$key'
     | '/api/proofs/$key'
   id:
@@ -179,6 +201,8 @@ export interface FileRouteTypes {
     | '/topup'
     | '/api/product-images'
     | '/api/topups'
+    | '/api/backups/$key'
+    | '/api/export/$table'
     | '/api/images/$key'
     | '/api/proofs/$key'
   fileRoutesById: FileRoutesById
@@ -195,6 +219,8 @@ export interface RootRouteChildren {
   TopupRoute: typeof TopupRoute
   ApiProductImagesRoute: typeof ApiProductImagesRoute
   ApiTopupsRoute: typeof ApiTopupsRoute
+  ApiBackupsKeyRoute: typeof ApiBackupsKeyRoute
+  ApiExportTableRoute: typeof ApiExportTableRoute
   ApiImagesKeyRoute: typeof ApiImagesKeyRoute
   ApiProofsKeyRoute: typeof ApiProofsKeyRoute
 }
@@ -292,6 +318,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiImagesKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/export/$table': {
+      id: '/api/export/$table'
+      path: '/api/export/$table'
+      fullPath: '/api/export/$table'
+      preLoaderRoute: typeof ApiExportTableRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/backups/$key': {
+      id: '/api/backups/$key'
+      path: '/api/backups/$key'
+      fullPath: '/api/backups/$key'
+      preLoaderRoute: typeof ApiBackupsKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -307,6 +347,8 @@ const rootRouteChildren: RootRouteChildren = {
   TopupRoute: TopupRoute,
   ApiProductImagesRoute: ApiProductImagesRoute,
   ApiTopupsRoute: ApiTopupsRoute,
+  ApiBackupsKeyRoute: ApiBackupsKeyRoute,
+  ApiExportTableRoute: ApiExportTableRoute,
   ApiImagesKeyRoute: ApiImagesKeyRoute,
   ApiProofsKeyRoute: ApiProofsKeyRoute,
 }

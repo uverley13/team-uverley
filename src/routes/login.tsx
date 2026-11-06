@@ -4,6 +4,7 @@ import { MessageCircle, LogIn } from 'lucide-react'
 import { AuthError, login, requestPasswordRecovery } from '@netlify/identity'
 import { errorMessage, useSession } from '../lib/session'
 import { confirmPendingAccount } from '../server/account.functions'
+import { checkLoginAllowed, reportLoginResult } from '../server/login-guard.functions'
 import { useSite } from '../lib/site'
 import { waLink } from '../lib/site-config'
 import { AuthShell, Field, inputClass } from '../components/AuthShell'
@@ -33,14 +34,29 @@ function LoginPage() {
         return
       }
       const cleanEmail = email.trim()
-      try {
-        await login(cleanEmail, password)
-      } catch (err) {
-        // Accounts created before confirmation emails were dropped may still be pending.
-        if (!(err instanceof AuthError && (err.status === 400 || err.status === 401))) throw err
-        await confirmPendingAccount({ data: { email: cleanEmail } })
-        await login(cleanEmail, password)
+      const guard = await checkLoginAllowed({ data: { email: cleanEmail } }).catch(() => ({ allowed: true, minutes: 0 }))
+      if (!guard.allowed) {
+        setError(`Demasiados intentos fallidos. Por seguridad, espera ${guard.minutes} minuto${guard.minutes === 1 ? '' : 's'} antes de volver a intentarlo.`)
+        return
       }
+      try {
+        try {
+          await login(cleanEmail, password)
+        } catch (err) {
+          // Accounts created before confirmation emails were dropped may still be pending.
+          if (!(err instanceof AuthError && (err.status === 400 || err.status === 401))) throw err
+          await confirmPendingAccount({ data: { email: cleanEmail } })
+          await login(cleanEmail, password)
+        }
+      } catch (err) {
+        if (err instanceof AuthError && (err.status === 400 || err.status === 401)) {
+          const result = await reportLoginResult({ data: { email: cleanEmail, success: false } }).catch(() => null)
+          if (result?.locked) throw new Error('Demasiados intentos fallidos. Por seguridad, el acceso quedó bloqueado 15 minutos.')
+          if (result && result.remaining <= 2) throw new Error(`Correo o contraseña incorrectos. Te quedan ${result.remaining} intento${result.remaining === 1 ? '' : 's'} antes de un bloqueo temporal.`)
+        }
+        throw err
+      }
+      void reportLoginResult({ data: { email: cleanEmail, success: true } }).catch(() => {})
       const session = await refresh()
       navigate({ to: session?.isAdmin ? '/dashboard' : '/' })
     } catch (err) {

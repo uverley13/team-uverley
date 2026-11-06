@@ -6,13 +6,18 @@ import { serveBlob, topupProofs } from '../../server/files'
 export const Route = createFileRoute('/api/proofs/$key')({
   server: {
     handlers: {
-      GET: async ({ params }) => {
+      GET: async ({ params, request }) => {
         try {
           await requireAdmin()
         } catch {
           return new Response('Forbidden', { status: 403 })
         }
-        return serveBlob(topupProofs(), params.key, 'private, max-age=300')
+        const response = await serveBlob(topupProofs(), params.key, 'private, max-age=300')
+        // ?descargar=1 downloads the file instead of showing it.
+        if (response.ok && new URL(request.url).searchParams.has('descargar')) {
+          response.headers.set('Content-Disposition', `attachment; filename="comprobante-${params.key}"`)
+        }
+        return response
       },
     },
   },

@@ -2,7 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { desc, ilike, or, sql, type SQL } from 'drizzle-orm'
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 import { db } from '../../db/index.js'
-import { balanceTransactions, orders, products, profiles, siteSettingsRevisions, topups } from '../../db/schema.js'
+import { adminAuditLog, adminNotifications, balanceTransactions, orders, products, profiles, siteSettingsRevisions, topups } from '../../db/schema.js'
 import { requireAdmin } from './auth'
 
 /*
@@ -13,16 +13,22 @@ import { requireAdmin } from './auth'
 
 type TableDef = { label: string; table: PgTable; order: PgColumn; search: PgColumn[] }
 
-const TABLES: Record<string, TableDef> = {
+export const TABLES: Record<string, TableDef> = {
   profiles: { label: 'Clientes', table: profiles, order: profiles.createdAt, search: [profiles.email, profiles.username, profiles.id] },
   topups: { label: 'Recargas', table: topups, order: topups.createdAt, search: [topups.userId, topups.status] },
   orders: { label: 'Pedidos', table: orders, order: orders.createdAt, search: [orders.productName, orders.status, orders.userId] },
   balance_transactions: { label: 'Movimientos de saldo', table: balanceTransactions, order: balanceTransactions.createdAt, search: [balanceTransactions.type, balanceTransactions.description, balanceTransactions.userId] },
   products: { label: 'Servicios', table: products, order: products.createdAt, search: [products.name, products.description] },
+  admin_audit_log: { label: 'Registro de actividad', table: adminAuditLog, order: adminAuditLog.createdAt, search: [adminAuditLog.actorEmail, adminAuditLog.action, adminAuditLog.summary, adminAuditLog.targetId] },
+  admin_notifications: { label: 'Notificaciones', table: adminNotifications, order: adminNotifications.createdAt, search: [adminNotifications.kind, adminNotifications.title, adminNotifications.body] },
   site_settings_revisions: { label: 'Versiones del contenido', table: siteSettingsRevisions, order: siteSettingsRevisions.createdAt, search: [siteSettingsRevisions.source, siteSettingsRevisions.summary] },
 }
 
 const PAGE_SIZE = 50
+
+export function tableWhere(def: TableDef, search: string): SQL | undefined {
+  return search ? or(...def.search.map(col => ilike(sql`${col}::text`, `%${search.replace(/[%_\\]/g, '\\$&')}%`))) : undefined
+}
 
 function cell(value: unknown): string | number | boolean | null {
   if (value === null || value === undefined) return null
@@ -40,9 +46,7 @@ export const adminBrowseTable = createServerFn({ method: 'GET' })
   .handler(async ({ data }) => {
     await requireAdmin()
     const def = TABLES[data.table]
-    const where: SQL | undefined = data.search
-      ? or(...def.search.map(col => ilike(sql`${col}::text`, `%${data.search.replace(/[%_\\]/g, '\\$&')}%`)))
-      : undefined
+    const where = tableWhere(def, data.search)
     const [rows, [{ count }]] = await Promise.all([
       db.select().from(def.table).where(where).orderBy(desc(def.order)).limit(PAGE_SIZE).offset((data.page - 1) * PAGE_SIZE),
       db.select({ count: sql<number>`count(*)::int` }).from(def.table).where(where),

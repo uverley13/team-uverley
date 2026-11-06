@@ -63,6 +63,11 @@ function AccountPage() {
           </div>
         ) : (
           <>
+            {account.profile.suspended && (
+              <div role="alert" className="mb-6 rounded-xl border border-red-900 bg-red-950/50 px-5 py-4 text-sm text-red-200">
+                Tu cuenta está suspendida: no puedes hacer pedidos ni enviar recargas por ahora. Escríbenos por WhatsApp para más información.
+              </div>
+            )}
             <section className="fade-in grid gap-6 rounded-2xl border border-gray-800 bg-gray-950 p-7 md:grid-cols-[1fr_auto] md:items-center">
               <div>
                 <p className="font-mono text-xs uppercase tracking-[0.25em] text-blue-400">Mi cuenta</p>

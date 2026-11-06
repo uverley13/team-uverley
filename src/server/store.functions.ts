@@ -2,8 +2,9 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { balanceTransactions, orders, products, profiles, topups } from '../../db/schema.js'
-import { requireAdmin, requireUser } from './auth'
+import { logAdminAction, requireActiveUser, requireAdmin, requireUser } from './auth'
 import { productImages } from './files'
+import { notifyAdmin } from './notify'
 
 export const MIN_TOPUP = 20000
 export const MAX_AMOUNT = 2000000
@@ -19,7 +20,7 @@ export type ProductDTO = {
   active: boolean
 }
 
-export type OrderDTO = { id: number; userId: string; productName: string; price: number; status: string; createdAt: string }
+export type OrderDTO = { id: number; userId: string; productName: string; price: number; status: string; createdAt: string; updatedAt: string }
 
 export type SessionDTO = {
   id: string
@@ -27,6 +28,7 @@ export type SessionDTO = {
   username: string
   balance: number
   isAdmin: boolean
+  suspended: boolean
 } | null
 
 function toProduct(row: typeof products.$inferSelect): ProductDTO {
@@ -49,6 +51,7 @@ function toOrder(row: typeof orders.$inferSelect): OrderDTO {
     price: row.price,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   }
 }
 
@@ -63,7 +66,7 @@ function positiveInt(value: unknown, field: string) {
 export const getSession = createServerFn({ method: 'GET' }).handler(async (): Promise<SessionDTO> => {
   try {
     const { profile, isAdmin } = await requireUser()
-    return { id: profile.id, email: profile.email, username: profile.username, balance: profile.balance, isAdmin }
+    return { id: profile.id, email: profile.email, username: profile.username, balance: profile.balance, isAdmin, suspended: profile.suspended }
   } catch {
     return null
   }
@@ -77,7 +80,7 @@ export const listActiveProducts = createServerFn({ method: 'GET' }).handler(asyn
 export const createOrder = createServerFn({ method: 'POST' })
   .inputValidator((data: { productId: number }) => ({ productId: positiveInt(data?.productId, 'El servicio') }))
   .handler(async ({ data }) => {
-    const { profile } = await requireUser()
+    const { profile } = await requireActiveUser()
     return db.transaction(async tx => {
       const [product] = await tx
         .select()
@@ -102,8 +105,15 @@ export const createOrder = createServerFn({ method: 'POST' })
         amount: -product.price,
         type: 'pedido',
         description: `Pedido #${order.id}: ${product.name}`,
+        balanceBefore: updated.balance + product.price,
+        balanceAfter: updated.balance,
+        reason: 'Compra de servicio',
+        reference: `order:${order.id}`,
       })
-      return { order: toOrder(order), balance: updated.balance }
+      return { order: toOrder(order), balance: updated.balance, productName: product.name }
+    }).then(async result => {
+      await notifyAdmin('pedido', `Nuevo pedido: ${result.productName}`, `${profile.email} pidió "${result.productName}" por $${result.order.price.toLocaleString('es-CO')} (pedido #${result.order.id}).`, 'pedidos')
+      return { order: result.order, balance: result.balance }
     })
   })
 
@@ -119,7 +129,7 @@ export const getMyAccount = createServerFn({ method: 'GET' }).handler(async () =
       .limit(10),
   ])
   return {
-    profile: { id: profile.id, email: profile.email, username: profile.username, balance: profile.balance, isAdmin },
+    profile: { id: profile.id, email: profile.email, username: profile.username, balance: profile.balance, isAdmin, suspended: profile.suspended },
     orders: myOrders.map(toOrder),
     topups: myTopups.map(t => ({ ...t, createdAt: t.createdAt.toISOString() })),
   }
@@ -127,79 +137,107 @@ export const getMyAccount = createServerFn({ method: 'GET' }).handler(async () =
 
 /* ---------------------------------- Admin ---------------------------------- */
 
-export const getAdminData = createServerFn({ method: 'GET' }).handler(async () => {
-  await requireAdmin()
-  const [clients, transactions, allOrders, allTopups] = await Promise.all([
-    db.select().from(profiles).orderBy(desc(profiles.createdAt)),
-    db.select().from(balanceTransactions).orderBy(desc(balanceTransactions.createdAt)).limit(100),
-    db.select().from(orders).orderBy(desc(orders.createdAt)).limit(200),
-    db.select().from(topups).orderBy(desc(topups.createdAt)).limit(300),
-  ])
-  return {
-    clients: clients.map(c => ({ id: c.id, email: c.email, username: c.username, balance: c.balance, createdAt: c.createdAt.toISOString() })),
-    transactions: transactions.map(t => ({ ...t, createdAt: t.createdAt.toISOString() })),
-    orders: allOrders.map(toOrder),
-    topups: allTopups.map(t => ({
-      id: t.id,
-      userId: t.userId,
-      amount: t.amount,
-      status: t.status,
-      proofUrl: `/api/proofs/${t.proofKey}`,
-      createdAt: t.createdAt.toISOString(),
-    })),
-  }
-})
-
 export const adminChangeBalance = createServerFn({ method: 'POST' })
-  .inputValidator((data: { userId: string; amount: number; type: 'recarga' | 'descuento'; description?: string }) => {
+  .inputValidator((data: { userId: string; amount: number; type: 'recarga' | 'descuento'; reason: string }) => {
     if (typeof data?.userId !== 'string' || !data.userId) throw new Error('Cliente no válido.')
     if (data.type !== 'recarga' && data.type !== 'descuento') throw new Error('Tipo de movimiento no válido.')
     const amount = positiveInt(data.amount, 'El monto')
     if (amount > MAX_AMOUNT) throw new Error('El monto máximo por movimiento es de $2.000.000 COP.')
-    return { userId: data.userId, amount, type: data.type, description: (data.description ?? '').trim().slice(0, 200) }
+    const reason = String(data.reason ?? '').trim().slice(0, 300)
+    // Every manual adjustment must say why: it is part of the financial audit trail.
+    if (reason.length < 5) throw new Error('Escribe el motivo del ajuste (mínimo 5 caracteres).')
+    return { userId: data.userId, amount, type: data.type, reason }
   })
   .handler(async ({ data }) => {
-    await requireAdmin()
+    const admin = await requireAdmin()
     return db.transaction(async tx => {
       const delta = data.type === 'recarga' ? data.amount : -data.amount
       const conditions = [eq(profiles.id, data.userId)]
       if (data.type === 'descuento') conditions.push(gte(profiles.balance, data.amount))
       const [updated] = await tx
         .update(profiles)
-        .set({ balance: sql`${profiles.balance} + ${delta}` })
+        .set({ balance: sql`${profiles.balance} + ${delta}`, updatedAt: new Date() })
         .where(and(...conditions))
-        .returning({ balance: profiles.balance })
+        .returning({ balance: profiles.balance, email: profiles.email })
       if (!updated) throw new Error(data.type === 'descuento' ? 'El descuento no puede ser mayor al saldo disponible.' : 'Cliente no encontrado.')
-      await tx.insert(balanceTransactions).values({
-        userId: data.userId,
-        amount: delta,
-        type: data.type,
-        description: data.description || (data.type === 'recarga' ? 'Recarga manual' : 'Descuento manual'),
+      const [movement] = await tx
+        .insert(balanceTransactions)
+        .values({
+          userId: data.userId,
+          amount: delta,
+          type: data.type === 'recarga' ? 'ajuste_credito' : 'ajuste_debito',
+          description: data.type === 'recarga' ? 'Ajuste manual: saldo agregado' : 'Ajuste manual: saldo descontado',
+          balanceBefore: updated.balance - delta,
+          balanceAfter: updated.balance,
+          adminId: admin.profile.id,
+          adminEmail: admin.profile.email,
+          reason: data.reason,
+        })
+        .returning({ id: balanceTransactions.id })
+      await logAdminAction(tx, admin, {
+        action: data.type === 'recarga' ? 'saldo.agregar' : 'saldo.descontar',
+        summary: `${data.type === 'recarga' ? 'Agregó' : 'Descontó'} $${data.amount.toLocaleString('es-CO')} a ${updated.email}. Motivo: ${data.reason}`,
+        targetType: 'client',
+        targetId: data.userId,
+        details: { amount: delta, balanceBefore: updated.balance - delta, balanceAfter: updated.balance, movementId: movement.id },
       })
       return { balance: updated.balance }
     })
   })
 
 export const adminReviewTopup = createServerFn({ method: 'POST' })
-  .inputValidator((data: { topupId: number; approve: boolean }) => ({ topupId: positiveInt(data?.topupId, 'La recarga'), approve: Boolean(data?.approve) }))
+  .inputValidator((data: { topupId: number; approve: boolean; note?: string }) => ({
+    topupId: positiveInt(data?.topupId, 'La recarga'),
+    approve: Boolean(data?.approve),
+    note: String(data?.note ?? '').trim().slice(0, 300) || null,
+  }))
   .handler(async ({ data }) => {
-    await requireAdmin()
+    const admin = await requireAdmin()
     return db.transaction(async tx => {
+      // Only a pending top-up can be reviewed, so the same proof can never be credited twice.
       const [topup] = await tx
         .update(topups)
-        .set({ status: data.approve ? 'approved' : 'rejected' })
+        .set({
+          status: data.approve ? 'approved' : 'rejected',
+          reviewedBy: admin.profile.id,
+          reviewedByEmail: admin.profile.email,
+          reviewedAt: new Date(),
+          reviewNote: data.note,
+          updatedAt: new Date(),
+        })
         .where(and(eq(topups.id, data.topupId), eq(topups.status, 'pending')))
         .returning()
-      if (!topup) throw new Error('Esta recarga ya fue revisada.')
+      if (!topup) throw new Error('Esta recarga ya fue revisada por otro administrador o no existe.')
+
+      let balanceAfter: number | null = null
       if (data.approve) {
-        await tx.update(profiles).set({ balance: sql`${profiles.balance} + ${topup.amount}` }).where(eq(profiles.id, topup.userId))
+        const [updated] = await tx
+          .update(profiles)
+          .set({ balance: sql`${profiles.balance} + ${topup.amount}`, updatedAt: new Date() })
+          .where(eq(profiles.id, topup.userId))
+          .returning({ balance: profiles.balance })
+        balanceAfter = updated.balance
         await tx.insert(balanceTransactions).values({
           userId: topup.userId,
           amount: topup.amount,
           type: 'recarga',
           description: `Recarga aprobada #${topup.id}`,
+          balanceBefore: updated.balance - topup.amount,
+          balanceAfter: updated.balance,
+          adminId: admin.profile.id,
+          adminEmail: admin.profile.email,
+          reason: topup.reference ? `Comprobante con referencia ${topup.reference}` : 'Comprobante de pago aprobado',
+          reference: `topup:${topup.id}`,
         })
       }
+      await logAdminAction(tx, admin, {
+        action: data.approve ? 'recarga.aprobar' : 'recarga.rechazar',
+        summary: `${data.approve ? 'Aprobó' : 'Rechazó'} la recarga #${topup.id} por $${topup.amount.toLocaleString('es-CO')}${data.note ? `. Nota: ${data.note}` : ''}`,
+        targetType: 'topup',
+        targetId: topup.id,
+        details: { userId: topup.userId, amount: topup.amount, reference: topup.reference, balanceAfter },
+      })
+      if (!data.approve) await notifyAdmin('rechazo', `Recarga #${topup.id} rechazada`, `${admin.profile.email} rechazó $${topup.amount.toLocaleString('es-CO')}${data.note ? `: ${data.note}` : ''}.`, 'recargas')
       return { ok: true }
     })
   })
@@ -210,10 +248,20 @@ export const adminSetOrderStatus = createServerFn({ method: 'POST' })
     return { orderId: positiveInt(data.orderId, 'El pedido'), status: data.status }
   })
   .handler(async ({ data }) => {
-    await requireAdmin()
-    const [order] = await db.update(orders).set({ status: data.status }).where(eq(orders.id, data.orderId)).returning()
-    if (!order) throw new Error('Pedido no encontrado.')
-    return toOrder(order)
+    const admin = await requireAdmin()
+    return db.transaction(async tx => {
+      const [previous] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, data.orderId))
+      if (!previous) throw new Error('Pedido no encontrado.')
+      const [order] = await tx.update(orders).set({ status: data.status, updatedAt: new Date() }).where(eq(orders.id, data.orderId)).returning()
+      await logAdminAction(tx, admin, {
+        action: 'pedido.estado',
+        summary: `Cambió el pedido #${order.id} de "${previous.status}" a "${data.status}"`,
+        targetType: 'order',
+        targetId: order.id,
+        details: { from: previous.status, to: data.status, userId: order.userId },
+      })
+      return toOrder(order)
+    })
   })
 
 export const adminListProducts = createServerFn({ method: 'GET' }).handler(async () => {
@@ -237,33 +285,44 @@ export const adminSaveProduct = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }) => {
-    await requireAdmin()
+    const admin = await requireAdmin()
     const values = { name: data.name, description: data.description, price: data.price, imageKey: data.imageKey, active: data.active }
     if (data.id) {
-      const [previous] = await db.select({ imageKey: products.imageKey }).from(products).where(eq(products.id, data.id))
+      const [previous] = await db.select().from(products).where(eq(products.id, data.id))
       if (!previous) throw new Error('Servicio no encontrado.')
       const [row] = await db.update(products).set({ ...values, updatedAt: new Date() }).where(eq(products.id, data.id)).returning()
       if (previous.imageKey && previous.imageKey !== data.imageKey) await productImages().delete(previous.imageKey)
+      await logAdminAction(db, admin, {
+        action: 'servicio.editar',
+        summary: `Editó el servicio "${row.name}"${previous.price !== row.price ? ` (precio de $${previous.price.toLocaleString('es-CO')} a $${row.price.toLocaleString('es-CO')})` : ''}`,
+        targetType: 'product',
+        targetId: row.id,
+        details: { before: { name: previous.name, price: previous.price, active: previous.active }, after: { name: row.name, price: row.price, active: row.active } },
+      })
       return toProduct(row)
     }
     const [row] = await db.insert(products).values(values).returning()
+    await logAdminAction(db, admin, { action: 'servicio.crear', summary: `Creó el servicio "${row.name}" ($${row.price.toLocaleString('es-CO')})`, targetType: 'product', targetId: row.id })
     return toProduct(row)
   })
 
 export const adminToggleProduct = createServerFn({ method: 'POST' })
   .inputValidator((data: { id: number; active: boolean }) => ({ id: positiveInt(data?.id, 'El servicio'), active: Boolean(data?.active) }))
   .handler(async ({ data }) => {
-    await requireAdmin()
+    const admin = await requireAdmin()
     const [row] = await db.update(products).set({ active: data.active, updatedAt: new Date() }).where(eq(products.id, data.id)).returning()
     if (!row) throw new Error('Servicio no encontrado.')
+    if (!data.active) await notifyAdmin('servicio', `Servicio no disponible: ${row.name}`, `${admin.profile.email} ocultó el servicio del catálogo.`, 'servicios')
+    await logAdminAction(db, admin, { action: data.active ? 'servicio.activar' : 'servicio.ocultar', summary: `${data.active ? 'Activó' : 'Ocultó'} el servicio "${row.name}"`, targetType: 'product', targetId: row.id })
     return toProduct(row)
   })
 
 export const adminDeleteProduct = createServerFn({ method: 'POST' })
   .inputValidator((data: { id: number }) => ({ id: positiveInt(data?.id, 'El servicio') }))
   .handler(async ({ data }) => {
-    await requireAdmin()
+    const admin = await requireAdmin()
     const [row] = await db.delete(products).where(eq(products.id, data.id)).returning()
     if (row?.imageKey) await productImages().delete(row.imageKey)
+    if (row) await logAdminAction(db, admin, { action: 'servicio.eliminar', summary: `Eliminó el servicio "${row.name}"`, targetType: 'product', targetId: row.id, details: { name: row.name, price: row.price } })
     return { ok: true }
   })

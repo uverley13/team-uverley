@@ -26,6 +26,7 @@ function TopupPage() {
   const balance = session?.balance ?? 0
   const [amount, setAmount] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [reference, setReference] = useState('')
   const [sending, setSending] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -77,6 +78,12 @@ function TopupPage() {
       return
     }
 
+    const cleanReference = reference.toUpperCase().replace(/[^A-Z0-9]/g, '')
+    if (cleanReference.length < 4 || cleanReference.length > 40) {
+      setError('Escribe el número de referencia o de transacción que aparece en tu comprobante.')
+      return
+    }
+
     if (!file) {
       setError('Debes subir el comprobante de pago.')
       return
@@ -102,6 +109,7 @@ function TopupPage() {
     try {
       const body = new FormData()
       body.set('amount', String(numericAmount))
+      body.set('reference', cleanReference)
       body.set('proof', file)
       const response = await fetch('/api/topups', { method: 'POST', body })
       const result = (await response.json().catch(() => ({}))) as { error?: string }
@@ -117,6 +125,7 @@ function TopupPage() {
       )
 
       setAmount('')
+      setReference('')
       setFile(null)
 
       const fileInput = document.getElementById(
@@ -233,6 +242,23 @@ function TopupPage() {
           <p className="text-gray-500 text-sm mb-8">
             Puedes recargar desde {formatPrice(MIN_AMOUNT)} hasta{' '}
             {formatPrice(MAX_AMOUNT)}.
+          </p>
+
+          {/* REFERENCIA */}
+          <label htmlFor="reference" className="mb-2 block text-xl font-bold">
+            Número de referencia
+          </label>
+          <input
+            id="reference"
+            type="text"
+            value={reference}
+            onChange={(e) => setReference(e.target.value.slice(0, 60))}
+            placeholder="Ej. M12345678"
+            autoComplete="off"
+            className="mb-2 w-full rounded-xl border border-gray-700 bg-gray-950 px-4 py-3 font-mono text-white outline-none focus:border-blue-500"
+          />
+          <p className="mb-8 text-sm text-gray-500">
+            Es el número de la transacción que aparece en tu comprobante. Cada comprobante solo se puede enviar una vez.
           </p>
 
           {/* COMPROBANTE */}
