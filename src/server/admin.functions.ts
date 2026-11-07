@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, desc, eq, gte, ilike, inArray, lte, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { adminAuditLog, adminNotifications, balanceTransactions, orders, profiles, topups } from '../../db/schema.js'
 import { logAdminAction, requireAdmin } from './auth'
@@ -56,10 +56,11 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null)
 /* --------------------------------- Dashboard -------------------------------- */
 
 /** Business statistics. Server-only: callers must check admin permissions first. */
-export async function computeStats() {
+export async function computeStats(siteId: number) {
   const { today, week, month } = periodStarts()
   const chartStart = new Date(today.getTime() - 29 * 86_400_000)
-  const sold = ne(orders.status, 'cancelado')
+  const sold = and(eq(orders.siteId, siteId), ne(orders.status, 'cancelado'))
+  const siteTopups = eq(topups.siteId, siteId)
 
   const [topupTotals, orderTotals, clientTotals, topServices, latest, dailyTopups, dailySales] = await Promise.all([
     db
@@ -70,7 +71,8 @@ export async function computeStats() {
         pendingCount: sql<number>`count(*) filter (where ${topups.status} = 'pending')::int`,
         rejectedCount: sql<number>`count(*) filter (where ${topups.status} = 'rejected')::int`,
       })
-      .from(topups),
+      .from(topups)
+      .where(siteTopups),
     db
       .select({
         salesTotal: sql<number>`coalesce(sum(${orders.price}) filter (where ${sold}), 0)::bigint`,
@@ -81,7 +83,8 @@ export async function computeStats() {
         salesMonth: sql<number>`coalesce(sum(${orders.price}) filter (where ${sold} and ${orders.createdAt} >= ${month}), 0)::bigint`,
         ordersToday: sql<number>`count(*) filter (where ${sold} and ${orders.createdAt} >= ${today})::int`,
       })
-      .from(orders),
+      .from(orders)
+      .where(eq(orders.siteId, siteId)),
     db
       .select({
         clients: sql<number>`count(*)::int`,
@@ -89,7 +92,8 @@ export async function computeStats() {
         newThisMonth: sql<number>`count(*) filter (where ${profiles.createdAt} >= ${month})::int`,
         totalBalance: sql<number>`coalesce(sum(${profiles.balance}), 0)::bigint`,
       })
-      .from(profiles),
+      .from(profiles)
+      .where(eq(profiles.siteId, siteId)),
     db
       .select({ name: orders.productName, count: sql<number>`count(*)::int`, total: sql<number>`sum(${orders.price})::bigint` })
       .from(orders)
@@ -108,6 +112,7 @@ export async function computeStats() {
       })
       .from(balanceTransactions)
       .leftJoin(profiles, eq(profiles.id, balanceTransactions.userId))
+      .where(eq(balanceTransactions.siteId, siteId))
       .orderBy(desc(balanceTransactions.createdAt))
       .limit(8),
     db
@@ -116,7 +121,7 @@ export async function computeStats() {
         total: sql<number>`sum(${topups.amount})::bigint`,
       })
       .from(topups)
-      .where(and(eq(topups.status, 'approved'), gte(topups.reviewedAt, chartStart)))
+      .where(and(siteTopups, eq(topups.status, 'approved'), gte(topups.reviewedAt, chartStart)))
       .groupBy(sql`1`),
     db
       .select({
@@ -164,8 +169,8 @@ export async function computeStats() {
 }
 
 export const adminGetStats = createServerFn({ method: 'GET' }).handler(async () => {
-  await requireAdmin()
-  return computeStats()
+  const admin = await requireAdmin()
+  return computeStats(admin.siteId)
 })
 
 /* ------------------------------ Payment proofs ------------------------------ */
@@ -189,8 +194,8 @@ export const adminListTopups = createServerFn({ method: 'GET' })
     max: optionalAmount(data?.max),
   }))
   .handler(async ({ data }) => {
-    await requireAdmin()
-    const conditions: SQL[] = []
+    const admin = await requireAdmin()
+    const conditions: SQL[] = [eq(topups.siteId, admin.siteId)]
     if (data.status !== 'all') conditions.push(eq(topups.status, data.status))
     if (data.from) conditions.push(gte(topups.createdAt, data.from))
     if (data.to) conditions.push(lte(topups.createdAt, data.to))
@@ -210,7 +215,7 @@ export const adminListTopups = createServerFn({ method: 'GET' })
         )!,
       )
     }
-    const where = conditions.length ? and(...conditions) : undefined
+    const where = and(...conditions)
 
     const [rows, [summary]] = await Promise.all([
       db
@@ -296,8 +301,8 @@ export const adminListTransactions = createServerFn({ method: 'GET' })
     userId: typeof data?.userId === 'string' ? data.userId.slice(0, 100) : undefined,
   }))
   .handler(async ({ data }) => {
-    await requireAdmin()
-    const conditions: SQL[] = []
+    const admin = await requireAdmin()
+    const conditions: SQL[] = [eq(balanceTransactions.siteId, admin.siteId)]
     if (data.userId) conditions.push(eq(balanceTransactions.userId, data.userId))
     if (data.type === 'ajuste') conditions.push(or(ilike(balanceTransactions.type, 'ajuste%'), inArray(balanceTransactions.type, ['descuento']))!)
     else if (data.type !== 'all') conditions.push(eq(balanceTransactions.type, data.type))
@@ -322,7 +327,7 @@ export const adminListTransactions = createServerFn({ method: 'GET' })
       .select({ t: balanceTransactions, email: profiles.email })
       .from(balanceTransactions)
       .leftJoin(profiles, eq(profiles.id, balanceTransactions.userId))
-      .where(conditions.length ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(balanceTransactions.createdAt))
       .limit(300)
     return rows.map(({ t, email }) => ({
@@ -349,8 +354,8 @@ export const adminListClients = createServerFn({ method: 'GET' })
     status: data?.status === 'active' || data?.status === 'suspended' ? data.status : 'all',
   }))
   .handler(async ({ data }) => {
-    await requireAdmin()
-    const conditions: SQL[] = []
+    const admin = await requireAdmin()
+    const conditions: SQL[] = [eq(profiles.siteId, admin.siteId)]
     if (data.status !== 'all') conditions.push(eq(profiles.suspended, data.status === 'suspended'))
     if (data.search) {
       const term = like(data.search)
@@ -364,7 +369,7 @@ export const adminListClients = createServerFn({ method: 'GET' })
         recharged: sql<number>`(select coalesce(sum(${topups.amount}), 0) from ${topups} where ${topups.userId} = ${profiles.id} and ${topups.status} = 'approved')::bigint`,
       })
       .from(profiles)
-      .where(conditions.length ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(profiles.createdAt))
       .limit(300)
     return rows.map(({ p, orders: orderCount, spent, recharged }) => ({
@@ -387,8 +392,8 @@ export const adminGetClient = createServerFn({ method: 'GET' })
     return { id: data.id.slice(0, 100) }
   })
   .handler(async ({ data }) => {
-    await requireAdmin()
-    const [profile] = await db.select().from(profiles).where(eq(profiles.id, data.id))
+    const admin = await requireAdmin()
+    const [profile] = await db.select().from(profiles).where(and(eq(profiles.id, data.id), eq(profiles.siteId, admin.siteId)))
     if (!profile) throw new Error('Cliente no encontrado.')
     const [clientTopups, clientOrders, movements, activity] = await Promise.all([
       db.select().from(topups).where(eq(topups.userId, data.id)).orderBy(desc(topups.createdAt)).limit(200),
@@ -456,7 +461,7 @@ export const adminSetClientSuspended = createServerFn({ method: 'POST' })
       const [row] = await tx
         .update(profiles)
         .set({ suspended: data.suspended, updatedAt: new Date() })
-        .where(eq(profiles.id, data.id))
+        .where(and(eq(profiles.id, data.id), eq(profiles.siteId, admin.siteId)))
         .returning({ email: profiles.email })
       if (!row) throw new Error('Cliente no encontrado.')
       await logAdminAction(tx, admin, {
@@ -479,7 +484,7 @@ export const adminSaveClientNotes = createServerFn({ method: 'POST' })
     const [row] = await db
       .update(profiles)
       .set({ adminNotes: data.notes || null, updatedAt: new Date() })
-      .where(eq(profiles.id, data.id))
+      .where(and(eq(profiles.id, data.id), eq(profiles.siteId, admin.siteId)))
       .returning({ email: profiles.email })
     if (!row) throw new Error('Cliente no encontrado.')
     await logAdminAction(db, admin, { action: 'cliente.notas', summary: `Actualizó las notas privadas de ${row.email}`, targetType: 'client', targetId: data.id })
@@ -495,8 +500,8 @@ export const adminListAuditLog = createServerFn({ method: 'GET' })
     to: parseDay(data?.to, true),
   }))
   .handler(async ({ data }) => {
-    await requireAdmin()
-    const conditions: SQL[] = []
+    const admin = await requireAdmin()
+    const conditions: SQL[] = [or(eq(adminAuditLog.siteId, admin.siteId), isNull(adminAuditLog.siteId))!]
     if (data.from) conditions.push(gte(adminAuditLog.createdAt, data.from))
     if (data.to) conditions.push(lte(adminAuditLog.createdAt, data.to))
     if (data.search) {
@@ -506,7 +511,7 @@ export const adminListAuditLog = createServerFn({ method: 'GET' })
     const rows = await db
       .select()
       .from(adminAuditLog)
-      .where(conditions.length ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(adminAuditLog.createdAt))
       .limit(300)
     return rows.map(r => ({
@@ -524,8 +529,8 @@ export const adminListAuditLog = createServerFn({ method: 'GET' })
 export const adminListOrders = createServerFn({ method: 'GET' })
   .inputValidator((data: { status?: string; search?: string }) => ({ status: String(data?.status ?? 'all'), search: searchText(data?.search) }))
   .handler(async ({ data }) => {
-    await requireAdmin()
-    const conditions: SQL[] = []
+    const admin = await requireAdmin()
+    const conditions: SQL[] = [eq(orders.siteId, admin.siteId)]
     if (data.status !== 'all') conditions.push(eq(orders.status, data.status))
     if (data.search) {
       const term = like(data.search)
@@ -543,7 +548,7 @@ export const adminListOrders = createServerFn({ method: 'GET' })
       .select({ o: orders, email: profiles.email })
       .from(orders)
       .leftJoin(profiles, eq(profiles.id, orders.userId))
-      .where(conditions.length ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(orders.createdAt))
       .limit(300)
     return rows.map(({ o, email }) => ({
@@ -560,11 +565,15 @@ export const adminListOrders = createServerFn({ method: 'GET' })
 
 /* ------------------------------- Notifications ------------------------------- */
 
+/** Notifications of the store being managed plus platform-wide ones (backups, scheduled jobs). */
+const notificationScope = (siteId: number) => or(eq(adminNotifications.siteId, siteId), isNull(adminNotifications.siteId))!
+
 export const adminListNotifications = createServerFn({ method: 'GET' }).handler(async () => {
-  await requireAdmin()
+  const admin = await requireAdmin()
+  const scope = notificationScope(admin.siteId)
   const [rows, [{ unread }]] = await Promise.all([
-    db.select().from(adminNotifications).orderBy(desc(adminNotifications.createdAt)).limit(50),
-    db.select({ unread: sql<number>`count(*)::int` }).from(adminNotifications).where(eq(adminNotifications.read, false)),
+    db.select().from(adminNotifications).where(scope).orderBy(desc(adminNotifications.createdAt)).limit(50),
+    db.select({ unread: sql<number>`count(*)::int` }).from(adminNotifications).where(and(scope, eq(adminNotifications.read, false))),
   ])
   return {
     unread,
@@ -573,8 +582,8 @@ export const adminListNotifications = createServerFn({ method: 'GET' }).handler(
 })
 
 export const adminMarkNotificationsRead = createServerFn({ method: 'POST' }).handler(async () => {
-  await requireAdmin()
-  await db.update(adminNotifications).set({ read: true }).where(eq(adminNotifications.read, false))
+  const admin = await requireAdmin()
+  await db.update(adminNotifications).set({ read: true }).where(and(notificationScope(admin.siteId), eq(adminNotifications.read, false)))
   return { ok: true }
 })
 
@@ -588,6 +597,6 @@ export const adminListBackups = createServerFn({ method: 'GET' }).handler(async 
 export const adminCreateBackup = createServerFn({ method: 'POST' }).handler(async () => {
   const admin = await requireAdmin()
   const result = await createBackup('manual', admin.profile.email)
-  await logAdminAction(db, admin, { action: 'copia.crear', summary: 'Creó una copia de seguridad manual de la base de datos', targetType: 'backup', targetId: result.key })
+  await logAdminAction(db, admin, { siteId: null, action: 'copia.crear', summary: 'Creó una copia de seguridad manual de la base de datos', targetType: 'backup', targetId: result.key })
   return result
 })

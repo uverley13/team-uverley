@@ -1,7 +1,7 @@
 // Server-only, READ-ONLY tools for the admin AI assistant. None of these can
 // approve payments, change balances or delete anything: they only read data.
 import type Anthropic from '@anthropic-ai/sdk'
-import { and, desc, eq, gte, ilike, inArray, isNotNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { adminNotifications, balanceTransactions, orders, products, profiles, topups } from '../../db/schema.js'
 import { computeStats } from './admin.functions'
@@ -41,8 +41,8 @@ export const READ_TOOLS: Anthropic.Tool[] = [
 
 const day = (d: Date) => d.toISOString()
 
-async function explainBalance(id: string) {
-  const [p] = await db.select().from(profiles).where(eq(profiles.id, id))
+async function explainBalance(siteId: number, id: string) {
+  const [p] = await db.select().from(profiles).where(and(eq(profiles.id, id), eq(profiles.siteId, siteId)))
   if (!p) return { error: 'Cliente no encontrado. Usa buscar_cliente para obtener el ID.' }
   const [movements, clientTopups, clientOrders] = await Promise.all([
     db.select().from(balanceTransactions).where(eq(balanceTransactions.userId, id)).orderBy(desc(balanceTransactions.createdAt)).limit(150),
@@ -60,15 +60,15 @@ async function explainBalance(id: string) {
   }
 }
 
-async function suspicious() {
+async function suspicious(siteId: number) {
   const since = new Date(Date.now() - 30 * 86_400_000)
-  const mismatched = await db.execute(sql`select p.id, p.email, p.balance, coalesce(sum(t.amount), 0)::bigint as ledger from ${profiles} p left join ${balanceTransactions} t on t.user_id = p.id group by p.id having p.balance <> coalesce(sum(t.amount), 0) limit 20`)
+  const mismatched = await db.execute(sql`select p.id, p.email, p.balance, coalesce(sum(t.amount), 0)::bigint as ledger from ${profiles} p left join ${balanceTransactions} t on t.user_id = p.id where p.site_id = ${siteId} group by p.id having p.balance <> coalesce(sum(t.amount), 0) limit 20`)
   const [dupHashes, dupRefs, frequent, bigAdjustments, security] = await Promise.all([
-    db.select({ hash: topups.proofHash, ids: sql<number[]>`array_agg(${topups.id})`, users: sql<string[]>`array_agg(distinct ${topups.userId})` }).from(topups).where(isNotNull(topups.proofHash)).groupBy(topups.proofHash).having(sql`count(*) > 1`).limit(20),
-    db.select({ ref: topups.reference, ids: sql<number[]>`array_agg(${topups.id})`, users: sql<string[]>`array_agg(distinct ${topups.userId})` }).from(topups).where(isNotNull(topups.reference)).groupBy(topups.reference).having(sql`count(*) > 1`).limit(20),
-    db.select({ userId: topups.userId, email: profiles.email, count: sql<number>`count(*)::int`, total: sql<number>`sum(${topups.amount})::bigint`, rejected: sql<number>`count(*) filter (where ${topups.status} = 'rejected')::int` }).from(topups).leftJoin(profiles, eq(profiles.id, topups.userId)).where(gte(topups.createdAt, since)).groupBy(topups.userId, profiles.email).having(sql`count(*) >= 5 or count(*) filter (where ${topups.status} = 'rejected') >= 2`).limit(20),
-    db.select({ id: balanceTransactions.id, userId: balanceTransactions.userId, amount: balanceTransactions.amount, admin: balanceTransactions.adminEmail, reason: balanceTransactions.reason, createdAt: balanceTransactions.createdAt }).from(balanceTransactions).where(and(or(ilike(balanceTransactions.type, 'ajuste%'), inArray(balanceTransactions.type, ['descuento'])), gte(balanceTransactions.createdAt, since), sql`abs(${balanceTransactions.amount}) >= 200000`)).orderBy(desc(balanceTransactions.createdAt)).limit(20),
-    db.select({ title: adminNotifications.title, body: adminNotifications.body, createdAt: adminNotifications.createdAt }).from(adminNotifications).where(and(eq(adminNotifications.kind, 'seguridad'), gte(adminNotifications.createdAt, since))).orderBy(desc(adminNotifications.createdAt)).limit(20),
+    db.select({ hash: topups.proofHash, ids: sql<number[]>`array_agg(${topups.id})`, users: sql<string[]>`array_agg(distinct ${topups.userId})` }).from(topups).where(and(eq(topups.siteId, siteId), isNotNull(topups.proofHash))).groupBy(topups.proofHash).having(sql`count(*) > 1`).limit(20),
+    db.select({ ref: topups.reference, ids: sql<number[]>`array_agg(${topups.id})`, users: sql<string[]>`array_agg(distinct ${topups.userId})` }).from(topups).where(and(eq(topups.siteId, siteId), isNotNull(topups.reference))).groupBy(topups.reference).having(sql`count(*) > 1`).limit(20),
+    db.select({ userId: topups.userId, email: profiles.email, count: sql<number>`count(*)::int`, total: sql<number>`sum(${topups.amount})::bigint`, rejected: sql<number>`count(*) filter (where ${topups.status} = 'rejected')::int` }).from(topups).leftJoin(profiles, eq(profiles.id, topups.userId)).where(and(eq(topups.siteId, siteId), gte(topups.createdAt, since))).groupBy(topups.userId, profiles.email).having(sql`count(*) >= 5 or count(*) filter (where ${topups.status} = 'rejected') >= 2`).limit(20),
+    db.select({ id: balanceTransactions.id, userId: balanceTransactions.userId, amount: balanceTransactions.amount, admin: balanceTransactions.adminEmail, reason: balanceTransactions.reason, createdAt: balanceTransactions.createdAt }).from(balanceTransactions).where(and(eq(balanceTransactions.siteId, siteId), or(ilike(balanceTransactions.type, 'ajuste%'), inArray(balanceTransactions.type, ['descuento'])), gte(balanceTransactions.createdAt, since), sql`abs(${balanceTransactions.amount}) >= 200000`)).orderBy(desc(balanceTransactions.createdAt)).limit(20),
+    db.select({ title: adminNotifications.title, body: adminNotifications.body, createdAt: adminNotifications.createdAt }).from(adminNotifications).where(and(or(eq(adminNotifications.siteId, siteId), isNull(adminNotifications.siteId)), eq(adminNotifications.kind, 'seguridad'), gte(adminNotifications.createdAt, since))).orderBy(desc(adminNotifications.createdAt)).limit(20),
   ])
   return {
     misma_imagen_varias_recargas: dupHashes,
@@ -80,23 +80,23 @@ async function suspicious() {
   }
 }
 
-export async function runReadTool(name: string, input: Record<string, unknown>): Promise<unknown> {
+export async function runReadTool(siteId: number, name: string, input: Record<string, unknown>): Promise<unknown> {
   switch (name) {
     case 'consultar_estadisticas':
-      return computeStats()
+      return computeStats(siteId)
     case 'listar_servicios':
-      return db.select({ id: products.id, nombre: products.name, precio: products.price, activo: products.active, descripcion: products.description }).from(products).orderBy(desc(products.createdAt))
+      return db.select({ id: products.id, nombre: products.name, precio: products.price, activo: products.active, descripcion: products.description }).from(products).where(eq(products.siteId, siteId)).orderBy(desc(products.createdAt))
     case 'buscar_cliente': {
       const term = `%${String(input.texto ?? '').slice(0, 100).replace(/[%_\\]/g, '\\$&')}%`
-      const rows = await db.select().from(profiles).where(or(ilike(profiles.email, term), ilike(profiles.username, term), ilike(profiles.id, term))).limit(8)
+      const rows = await db.select().from(profiles).where(and(eq(profiles.siteId, siteId), or(ilike(profiles.email, term), ilike(profiles.username, term), ilike(profiles.id, term)))).limit(8)
       return rows.map(p => ({ id: p.id, email: p.email, nombre: p.username, saldo: p.balance, suspendido: p.suspended, registrado: day(p.createdAt) }))
     }
     case 'explicar_saldo':
-      return explainBalance(String(input.cliente_id ?? '').slice(0, 100))
+      return explainBalance(siteId, String(input.cliente_id ?? '').slice(0, 100))
     case 'detectar_movimientos_sospechosos':
-      return suspicious()
+      return suspicious(siteId)
     case 'revisar_errores': {
-      const rows = await db.select().from(adminNotifications).where(inArray(adminNotifications.kind, ['error', 'seguridad'])).orderBy(desc(adminNotifications.createdAt)).limit(30)
+      const rows = await db.select().from(adminNotifications).where(and(or(eq(adminNotifications.siteId, siteId), isNull(adminNotifications.siteId)), inArray(adminNotifications.kind, ['error', 'seguridad']))).orderBy(desc(adminNotifications.createdAt)).limit(30)
       return rows.map(r => ({ tipo: r.kind, titulo: r.title, detalle: r.body, fecha: day(r.createdAt) }))
     }
     default:

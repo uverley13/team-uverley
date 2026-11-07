@@ -16,7 +16,7 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { name: 'theme-color', content: '#000000' },
-      ...(loaderData ? [{ name: 'description', content: loaderData.brand.metaDescription }, { title: siteName(loaderData) }] : [{ title: 'Servidor Uverley' }]),
+      ...(loaderData ? [{ name: 'description', content: loaderData.brand.metaDescription }, { title: siteName(loaderData) }] : [{ title: 'Tienda' }]),
     ],
     links: [
       { rel: 'preconnect', href: 'https://fonts.googleapis.com' },

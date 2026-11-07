@@ -5,9 +5,10 @@ import { OrderStatus } from '../components/OrderStatus'
 import { Logo } from '../components/Logo'
 import { errorMessage, formatDate, formatPrice, useSession } from '../lib/session'
 import { getMyAccount } from '../server/store.functions'
+import { pageTitle } from '../lib/site'
 
 export const Route = createFileRoute('/account')({
-  head: () => ({ meta: [{ title: 'Mi cuenta · Servidor Uverley' }] }),
+  head: ({ matches }) => ({ meta: [{ title: pageTitle(matches, 'Mi cuenta') }] }),
   component: AccountPage,
 })
 

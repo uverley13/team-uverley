@@ -2,14 +2,16 @@ import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ArrowLeft, CheckCircle2 } from 'lucide-react'
 import { Logo } from './Logo'
-
-const highlights = [
-  'Pedidos registrados con su estado en tiempo real',
-  'Recargas por Nequi validadas por una persona',
-  'Soporte directo por WhatsApp',
-]
+import { useSite } from '../lib/site'
+import { siteName } from '../lib/site-config'
 
 export function AuthShell({ title, subtitle, children, footer }: { title: string; subtitle: string; children: ReactNode; footer: ReactNode }) {
+  const site = useSite()
+  const highlights = [
+    'Pedidos registrados con su estado en tiempo real',
+    `Recargas por ${site.payments.method} validadas por una persona`,
+    'Soporte directo por WhatsApp',
+  ]
   return (
     <div className="grain grid min-h-screen bg-black text-gray-100 lg:grid-cols-[1fr_1.1fr]">
       <aside className="relative hidden overflow-hidden border-r border-gray-900 bg-gray-950 p-12 lg:flex lg:flex-col lg:justify-between">
@@ -26,7 +28,7 @@ export function AuthShell({ title, subtitle, children, footer }: { title: string
             ))}
           </ul>
         </div>
-        <p className="relative font-mono text-xs text-gray-600">© {new Date().getFullYear()} Servidor Uverley</p>
+        <p className="relative font-mono text-xs text-gray-600">© {new Date().getFullYear()} {siteName(site)}</p>
       </aside>
 
       <main className="flex flex-col px-5 py-8 sm:px-10">

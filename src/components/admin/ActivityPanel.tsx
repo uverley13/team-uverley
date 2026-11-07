@@ -6,7 +6,7 @@ import { card, Empty, Filter, fieldClass, SectionTitle, useDebounced, type Notif
 
 type Entry = Awaited<ReturnType<typeof adminListAuditLog>>[number]
 
-const GROUP: Record<string, string> = { recarga: 'Recargas', saldo: 'Saldos', pedido: 'Pedidos', servicio: 'Servicios', contenido: 'Contenido', cliente: 'Clientes', datos: 'Datos', copia: 'Copias' }
+const GROUP: Record<string, string> = { recarga: 'Recargas', saldo: 'Saldos', pedido: 'Pedidos', servicio: 'Servicios', contenido: 'Contenido', cliente: 'Clientes', datos: 'Datos', copia: 'Copias', tienda: 'Tiendas' }
 
 export function ActivityPanel({ notify }: { notify: Notify }) {
   const [search, setSearch] = useState('')

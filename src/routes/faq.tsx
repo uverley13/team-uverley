@@ -2,11 +2,11 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { ArrowLeft, ChevronDown, MessageCircle } from 'lucide-react'
 import { Logo } from '../components/Logo'
-import { useSite } from '../lib/site'
+import { pageTitle, useSite } from '../lib/site'
 import { waLink } from '../lib/site-config'
 
 export const Route = createFileRoute('/faq')({
-  head: () => ({ meta: [{ title: 'Preguntas frecuentes · Servidor Uverley' }] }),
+  head: ({ matches }) => ({ meta: [{ title: pageTitle(matches, 'Preguntas frecuentes') }] }),
   component: FaqPage,
 })
 

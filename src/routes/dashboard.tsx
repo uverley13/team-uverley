@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
-import { BarChart3, Database, FileText, History, LogOut, Package, Receipt, RefreshCw, ScrollText, ShoppingCart, Sparkles, Users, X } from 'lucide-react'
+import { BarChart3, Database, FileText, History, LogOut, Package, Receipt, RefreshCw, ScrollText, ShoppingCart, Sparkles, Store, Users, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Logo } from '../components/Logo'
 import { SiteEditor } from '../components/admin/SiteEditor'
@@ -13,16 +13,17 @@ import { LedgerPanel } from '../components/admin/LedgerPanel'
 import { OrdersPanel } from '../components/admin/OrdersPanel'
 import { ActivityPanel } from '../components/admin/ActivityPanel'
 import { Notifications } from '../components/admin/Notifications'
+import { StoreSwitcher, StoresPanel } from '../components/admin/StoresPanel'
 import { useSession } from '../lib/session'
 import { adminGetStats } from '../server/admin.functions'
 
 export const Route = createFileRoute('/dashboard')({
-  head: () => ({ meta: [{ title: 'Panel · Servidor Uverley' }, { name: 'robots', content: 'noindex' }] }),
+  head: () => ({ meta: [{ title: 'Panel de administración' }, { name: 'robots', content: 'noindex' }] }),
   component: DashboardPage,
 })
 
-type Section = 'inicio' | 'recargas' | 'pedidos' | 'clientes' | 'movimientos' | 'actividad' | 'contenido' | 'asistente' | 'datos'
-const SECTIONS: Section[] = ['inicio', 'recargas', 'pedidos', 'clientes', 'movimientos', 'actividad', 'contenido', 'asistente', 'datos']
+type Section = 'inicio' | 'recargas' | 'pedidos' | 'clientes' | 'movimientos' | 'actividad' | 'contenido' | 'asistente' | 'datos' | 'tiendas'
+const SECTIONS: Section[] = ['inicio', 'recargas', 'pedidos', 'clientes', 'movimientos', 'actividad', 'contenido', 'asistente', 'datos', 'tiendas']
 
 // Automatic sign-out after inactivity, with a one-minute warning.
 const IDLE_MS = 15 * 60 * 1000
@@ -104,6 +105,7 @@ function DashboardPage() {
     { section: 'contenido', label: 'Contenido', icon: FileText },
     { section: 'asistente', label: 'Asistente IA', icon: Sparkles },
     { section: 'datos', label: 'Base de datos', icon: Database },
+    { section: 'tiendas', label: 'Tiendas', icon: Store },
   ]
 
   return (
@@ -116,6 +118,7 @@ function DashboardPage() {
             <span className="hidden truncate text-xs text-gray-500 md:inline">{session.email}</span>
           </div>
           <div className="flex gap-2">
+            <StoreSwitcher notify={notify} onManage={() => setSection('tiendas')} />
             <Link to="/products" className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500"><Package size={18} /><span className="hidden sm:inline">Servicios</span></Link>
             <Notifications onOpenLink={go} onNew={refresh} />
             <button onClick={refresh} className="rounded-lg border border-gray-800 p-2.5 hover:border-gray-600" title="Actualizar" aria-label="Actualizar"><RefreshCw size={18} /></button>
@@ -151,6 +154,7 @@ function DashboardPage() {
           {section === 'contenido' && <SiteEditor notify={notify} />}
           {section === 'asistente' && <AssistantPanel notify={notify} />}
           {section === 'datos' && <DatabaseBrowser />}
+          {section === 'tiendas' && <StoresPanel notify={notify} />}
         </div>
       </main>
 

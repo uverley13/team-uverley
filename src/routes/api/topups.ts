@@ -61,7 +61,7 @@ export const Route = createFileRoute('/api/topups')({
         const form = await request.formData().catch(() => null)
         const amount = Number(form?.get('amount'))
         const proof = form?.get('proof')
-        const { payments } = await loadSite()
+        const { payments } = await loadSite(session.siteId)
         if (!Number.isInteger(amount) || amount < payments.minTopup || amount > payments.maxTopup) {
           return json({ error: `El monto debe estar entre ${formatPrice(payments.minTopup)} y ${formatPrice(payments.maxTopup)}.` }, 400)
         }
@@ -92,7 +92,7 @@ export const Route = createFileRoute('/api/topups')({
         try {
           const [topup] = await db
             .insert(topups)
-            .values({ userId: session.profile.id, amount, proofKey: key, proofHash, reference })
+            .values({ siteId: session.siteId, userId: session.profile.id, amount, proofKey: key, proofHash, reference })
             .returning({ id: topups.id })
           await notifyAdmin('recarga', `Nuevo comprobante por ${formatPrice(amount)}`, `${session.profile.email} envió la recarga #${topup.id} (ref. ${reference}). Está pendiente de revisión.`, 'recargas')
           return json({ id: topup.id }, 201)

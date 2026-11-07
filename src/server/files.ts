@@ -1,5 +1,8 @@
 // Server-only helpers for files stored in Netlify Blobs.
 import { getStore } from '@netlify/blobs'
+import { eq } from 'drizzle-orm'
+import { db } from '../../db/index.js'
+import { products } from '../../db/schema.js'
 
 export const productImages = () => getStore('product-images')
 export const topupProofs = () => getStore('topup-proofs')
@@ -42,4 +45,10 @@ export async function serveBlob(store: ReturnType<typeof getStore>, key: string,
       'X-Content-Type-Options': 'nosniff',
     },
   })
+}
+
+/** Deletes a product image unless another product (e.g. a copy in another store) still uses it. */
+export async function deleteProductImageIfUnused(key: string) {
+  const [stillUsed] = await db.select({ id: products.id }).from(products).where(eq(products.imageKey, key)).limit(1)
+  if (!stillUsed) await productImages().delete(key)
 }

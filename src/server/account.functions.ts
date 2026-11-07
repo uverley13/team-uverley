@@ -68,7 +68,7 @@ export const registerAccount = createServerFn({ method: 'POST' })
           await admin.updateUser(existing.id, { confirm: true })
           return { ok: true as const }
         }
-        throw new Error('Este correo ya tiene una cuenta. Inicia sesión.')
+        throw new Error('Este correo ya está registrado. Inicia sesión con tu contraseña; si no la recuerdas, usa «¿Olvidaste tu contraseña?».')
       }
       console.error('No se pudo crear la cuenta:', error)
       throw new Error('No se pudo crear la cuenta. Intenta de nuevo en unos minutos.')

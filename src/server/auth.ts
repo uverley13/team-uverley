@@ -1,8 +1,9 @@
 // Server-only helpers shared by server functions and API routes.
 import { getUser, type User } from '@netlify/identity'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { adminAuditLog, profiles } from '../../db/schema.js'
+import { currentStore, DEFAULT_SITE_ID } from './tenant'
 
 export type Profile = typeof profiles.$inferSelect
 
@@ -19,16 +20,24 @@ export function isAdminUser(user: User) {
   return Boolean(user.email && admins.includes(user.email.toLowerCase()))
 }
 
-/** Returns the profile row for an Identity user, creating it on first use. */
-export async function ensureProfile(user: User): Promise<Profile> {
+/** Profile ids: store #1 keeps the Identity user id (as before); other stores add a prefix. */
+export function profileIdFor(siteId: number, userId: string) {
+  return siteId === DEFAULT_SITE_ID ? userId : `s${siteId}_${userId}`
+}
+
+/**
+ * Returns the store profile of an Identity user, creating it on first use.
+ * Each store has its own profile, so balances and history never mix between stores.
+ */
+export async function ensureProfile(user: User, siteId: number): Promise<Profile> {
   const email = user.email ?? ''
   const metadataName = typeof user.userMetadata?.full_name === 'string' ? user.userMetadata.full_name : ''
   const username = (user.name || metadataName || email.split('@')[0] || 'Cliente').slice(0, 60)
 
-  await db.insert(profiles).values({ id: user.id, email, username }).onConflictDoNothing()
-  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id))
+  await db.insert(profiles).values({ id: profileIdFor(siteId, user.id), siteId, userId: user.id, email, username }).onConflictDoNothing()
+  const [profile] = await db.select().from(profiles).where(and(eq(profiles.siteId, siteId), eq(profiles.userId, user.id)))
   if (profile.email !== email && email) {
-    await db.update(profiles).set({ email }).where(eq(profiles.id, user.id))
+    await db.update(profiles).set({ email }).where(eq(profiles.id, profile.id))
     profile.email = email
   }
   return profile
@@ -37,8 +46,9 @@ export async function ensureProfile(user: User): Promise<Profile> {
 export async function requireUser() {
   const user = await getUser()
   if (!user) throw new Error('Debes iniciar sesión para continuar.')
-  const profile = await ensureProfile(user)
-  return { user, profile, isAdmin: isAdminUser(user) }
+  const store = await currentStore()
+  const profile = await ensureProfile(user, store.id)
+  return { user, profile, isAdmin: isAdminUser(user), siteId: store.id, store }
 }
 
 export async function requireAdmin() {
@@ -64,9 +74,10 @@ type Executor = Pick<typeof db, 'insert'>
 export async function logAdminAction(
   executor: Executor,
   admin: AdminSession,
-  entry: { action: string; summary: string; targetType?: string; targetId?: string | number; details?: unknown },
+  entry: { siteId?: number | null; action: string; summary: string; targetType?: string; targetId?: string | number; details?: unknown },
 ) {
   await executor.insert(adminAuditLog).values({
+    siteId: entry.siteId === undefined ? admin.siteId : entry.siteId,
     actorId: admin.profile.id,
     actorEmail: admin.profile.email,
     action: entry.action,
