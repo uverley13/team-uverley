@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { desc } from 'drizzle-orm'
 import { db } from '../../../db/index.js'
 import { logAdminAction, requireAdmin } from '../../server/auth'
-import { TABLES, tableWhere } from '../../server/database.functions'
+import { TABLES, tableWhere } from '../../server/tables'
 
 function csvValue(value: unknown) {
   if (value === null || value === undefined) return ''
@@ -23,7 +23,7 @@ export const Route = createFileRoute('/api/export/$table')({
         } catch {
           return new Response('Forbidden', { status: 403 })
         }
-        const def = TABLES[params.table]
+        const def = Object.hasOwn(TABLES, params.table) ? TABLES[params.table] : undefined
         if (!def) return new Response('Not found', { status: 404 })
         const search = (new URL(request.url).searchParams.get('q') ?? '').trim().slice(0, 100)
         const rows = (await db.select().from(def.table).where(tableWhere(def, search, admin.siteId)).orderBy(desc(def.order)).limit(50_000)) as Record<string, unknown>[]
