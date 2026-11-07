@@ -4,7 +4,7 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { adminNotifications, balanceTransactions, orders, products, profiles, topups } from '../../db/schema.js'
-import { computeStats } from './admin.functions'
+import { computeStats } from './stats'
 
 export const READ_TOOLS: Anthropic.Tool[] = [
   {
