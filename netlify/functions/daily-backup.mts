@@ -8,7 +8,7 @@ export default async () => {
     console.log('Copia de seguridad creada:', result.key)
   } catch (error) {
     console.error('Falló la copia de seguridad automática:', error)
-    await notifyAdmin('error', 'Falló la copia de seguridad automática', String((error as Error)?.message ?? error).slice(0, 300))
+    await notifyAdmin('error', 'Falló la copia de seguridad automática', String((error as Error)?.message ?? error).slice(0, 300), undefined, null)
   }
 }
 

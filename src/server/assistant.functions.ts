@@ -63,8 +63,8 @@ export const adminAssistantChat = createServerFn({ method: 'POST' })
     return { messages }
   })
   .handler(async ({ data }) => {
-    await requireAdmin()
-    const current = await loadSite()
+    const admin = await requireAdmin()
+    const current = await loadSite(admin.siteId)
     const anthropic = new Anthropic()
     const messages: Anthropic.MessageParam[] = [...data.messages]
     let response: Anthropic.Message | null = null
@@ -74,7 +74,7 @@ export const adminAssistantChat = createServerFn({ method: 'POST' })
       response = await anthropic.messages.create({
         model: MODEL,
         max_tokens: 4096,
-        system: `${SYSTEM}\n\nFecha actual: ${new Date().toISOString()}\n\nContenido ACTUAL del sitio:\n${JSON.stringify(current)}`,
+        system: `${SYSTEM}\n\nTienda que estás administrando: ${admin.store.name}. Todos los datos y herramientas se refieren SOLO a esta tienda.\n\nFecha actual: ${new Date().toISOString()}\n\nContenido ACTUAL del sitio:\n${JSON.stringify(current)}`,
         tools: [TOOL, ...READ_TOOLS],
         messages,
       })
@@ -87,7 +87,7 @@ export const adminAssistantChat = createServerFn({ method: 'POST' })
           .map(async b => {
             if (b.name === TOOL.name) return { type: 'tool_result' as const, tool_use_id: b.id, content: 'Propuesta registrada para revisión del administrador.' }
             try {
-              const out = await runReadTool(b.name, (b.input ?? {}) as Record<string, unknown>)
+              const out = await runReadTool(admin.siteId, b.name, (b.input ?? {}) as Record<string, unknown>)
               return { type: 'tool_result' as const, tool_use_id: b.id, content: JSON.stringify(out).slice(0, 60_000) }
             } catch (error) {
               console.error('Herramienta del asistente falló:', error)
@@ -128,9 +128,9 @@ export const adminApplyAssistantChange = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }) => {
     const admin = await requireAdmin()
-    const current = await loadSite()
+    const current = await loadSite(admin.siteId)
     const summary = data.summary || 'Cambio del asistente'
-    const saved = await storeSite(mergeSite(current, data.patch), { source: 'asistente', summary, by: admin.profile.email })
+    const saved = await storeSite(admin.siteId, mergeSite(current, data.patch), { source: 'asistente', summary, by: admin.profile.email })
     await logAdminAction(db, admin, { action: 'contenido.asistente', summary: `Aplicó un cambio propuesto por el asistente: ${summary}`, targetType: 'site' })
     return saved
   })

@@ -1,14 +1,16 @@
-// Server-only: full JSON backups of the store database, saved in Netlify Blobs.
+// Server-only: full JSON backups of the database (all stores), saved in Netlify Blobs.
 import { getStore } from '@netlify/blobs'
 import { asc } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { adminAuditLog, balanceTransactions, orders, products, profiles, siteSettings, siteSettingsRevisions, topups } from '../../db/schema.js'
+import { adminAuditLog, balanceTransactions, orders, products, profiles, siteDomains, siteSettings, siteSettingsRevisions, sites, topups } from '../../db/schema.js'
 
 export const backupsStore = () => getStore('database-backups')
 const KEEP = 60
 
 export async function createBackup(trigger: 'automatica' | 'manual', by?: string) {
-  const [p, pr, o, t, tu, ss, ssr, al] = await Promise.all([
+  const [st, sd, p, pr, o, t, tu, ss, ssr, al] = await Promise.all([
+    db.select().from(sites).orderBy(asc(sites.id)),
+    db.select().from(siteDomains),
     db.select().from(profiles).orderBy(asc(profiles.createdAt)),
     db.select().from(products).orderBy(asc(products.id)),
     db.select().from(orders).orderBy(asc(orders.id)),
@@ -20,7 +22,7 @@ export async function createBackup(trigger: 'automatica' | 'manual', by?: string
   ])
   const createdAt = new Date().toISOString()
   const key = `backup-${createdAt.replace(/[:.]/g, '-')}.json`
-  const tables = { profiles: p, products: pr, orders: o, balance_transactions: t, topups: tu, site_settings: ss, site_settings_revisions: ssr, admin_audit_log: al }
+  const tables = { sites: st, site_domains: sd, profiles: p, products: pr, orders: o, balance_transactions: t, topups: tu, site_settings: ss, site_settings_revisions: ssr, admin_audit_log: al }
   const counts = Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.length]))
   const store = backupsStore()
   await store.set(key, JSON.stringify({ createdAt, trigger, by: by ?? null, tables }), { metadata: { createdAt, trigger, by: by ?? '', counts: JSON.stringify(counts) } })

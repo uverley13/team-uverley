@@ -4,9 +4,10 @@ import { ArrowLeft, Eye, EyeOff, Pencil, Plus, Smartphone, Trash2, Upload, X } f
 import { Logo } from '../components/Logo'
 import { errorMessage, formatPrice, useSession } from '../lib/session'
 import { adminDeleteProduct, adminListProducts, adminSaveProduct, adminToggleProduct, type ProductDTO } from '../server/store.functions'
+import { pageTitle } from '../lib/site'
 
 export const Route = createFileRoute('/products')({
-  head: () => ({ meta: [{ title: 'Servicios · Servidor Uverley' }] }),
+  head: ({ matches }) => ({ meta: [{ title: pageTitle(matches, 'Servicios') }] }),
   component: ProductsPage,
 })
 

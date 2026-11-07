@@ -3,7 +3,8 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { balanceTransactions, orders, products, profiles, topups } from '../../db/schema.js'
 import { logAdminAction, requireActiveUser, requireAdmin, requireUser } from './auth'
-import { productImages } from './files'
+import { deleteProductImageIfUnused } from './files'
+import { currentSiteId } from './tenant'
 import { notifyAdmin } from './notify'
 
 export const MIN_TOPUP = 20000
@@ -73,19 +74,20 @@ export const getSession = createServerFn({ method: 'GET' }).handler(async (): Pr
 })
 
 export const listActiveProducts = createServerFn({ method: 'GET' }).handler(async () => {
-  const rows = await db.select().from(products).where(eq(products.active, true)).orderBy(desc(products.createdAt))
+  const siteId = await currentSiteId()
+  const rows = await db.select().from(products).where(and(eq(products.siteId, siteId), eq(products.active, true))).orderBy(desc(products.createdAt))
   return rows.map(toProduct)
 })
 
 export const createOrder = createServerFn({ method: 'POST' })
   .inputValidator((data: { productId: number }) => ({ productId: positiveInt(data?.productId, 'El servicio') }))
   .handler(async ({ data }) => {
-    const { profile } = await requireActiveUser()
+    const { profile, siteId } = await requireActiveUser()
     return db.transaction(async tx => {
       const [product] = await tx
         .select()
         .from(products)
-        .where(and(eq(products.id, data.productId), eq(products.active, true)))
+        .where(and(eq(products.id, data.productId), eq(products.siteId, siteId), eq(products.active, true)))
       if (!product) throw new Error('Este servicio ya no está disponible.')
 
       // Conditional update keeps the balance from going negative under concurrent orders.
@@ -98,9 +100,10 @@ export const createOrder = createServerFn({ method: 'POST' })
 
       const [order] = await tx
         .insert(orders)
-        .values({ userId: profile.id, productId: product.id, productName: product.name, price: product.price })
+        .values({ siteId, userId: profile.id, productId: product.id, productName: product.name, price: product.price })
         .returning()
       await tx.insert(balanceTransactions).values({
+        siteId,
         userId: profile.id,
         amount: -product.price,
         type: 'pedido',
@@ -152,7 +155,7 @@ export const adminChangeBalance = createServerFn({ method: 'POST' })
     const admin = await requireAdmin()
     return db.transaction(async tx => {
       const delta = data.type === 'recarga' ? data.amount : -data.amount
-      const conditions = [eq(profiles.id, data.userId)]
+      const conditions = [eq(profiles.id, data.userId), eq(profiles.siteId, admin.siteId)]
       if (data.type === 'descuento') conditions.push(gte(profiles.balance, data.amount))
       const [updated] = await tx
         .update(profiles)
@@ -163,6 +166,7 @@ export const adminChangeBalance = createServerFn({ method: 'POST' })
       const [movement] = await tx
         .insert(balanceTransactions)
         .values({
+          siteId: admin.siteId,
           userId: data.userId,
           amount: delta,
           type: data.type === 'recarga' ? 'ajuste_credito' : 'ajuste_debito',
@@ -205,7 +209,7 @@ export const adminReviewTopup = createServerFn({ method: 'POST' })
           reviewNote: data.note,
           updatedAt: new Date(),
         })
-        .where(and(eq(topups.id, data.topupId), eq(topups.status, 'pending')))
+        .where(and(eq(topups.id, data.topupId), eq(topups.siteId, admin.siteId), eq(topups.status, 'pending')))
         .returning()
       if (!topup) throw new Error('Esta recarga ya fue revisada por otro administrador o no existe.')
 
@@ -218,6 +222,7 @@ export const adminReviewTopup = createServerFn({ method: 'POST' })
           .returning({ balance: profiles.balance })
         balanceAfter = updated.balance
         await tx.insert(balanceTransactions).values({
+          siteId: admin.siteId,
           userId: topup.userId,
           amount: topup.amount,
           type: 'recarga',
@@ -250,9 +255,10 @@ export const adminSetOrderStatus = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const admin = await requireAdmin()
     return db.transaction(async tx => {
-      const [previous] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, data.orderId))
+      const scope = and(eq(orders.id, data.orderId), eq(orders.siteId, admin.siteId))
+      const [previous] = await tx.select({ status: orders.status }).from(orders).where(scope)
       if (!previous) throw new Error('Pedido no encontrado.')
-      const [order] = await tx.update(orders).set({ status: data.status, updatedAt: new Date() }).where(eq(orders.id, data.orderId)).returning()
+      const [order] = await tx.update(orders).set({ status: data.status, updatedAt: new Date() }).where(scope).returning()
       await logAdminAction(tx, admin, {
         action: 'pedido.estado',
         summary: `Cambió el pedido #${order.id} de "${previous.status}" a "${data.status}"`,
@@ -265,8 +271,8 @@ export const adminSetOrderStatus = createServerFn({ method: 'POST' })
   })
 
 export const adminListProducts = createServerFn({ method: 'GET' }).handler(async () => {
-  await requireAdmin()
-  const rows = await db.select().from(products).orderBy(desc(products.createdAt))
+  const admin = await requireAdmin()
+  const rows = await db.select().from(products).where(eq(products.siteId, admin.siteId)).orderBy(desc(products.createdAt))
   return rows.map(toProduct)
 })
 
@@ -288,10 +294,11 @@ export const adminSaveProduct = createServerFn({ method: 'POST' })
     const admin = await requireAdmin()
     const values = { name: data.name, description: data.description, price: data.price, imageKey: data.imageKey, active: data.active }
     if (data.id) {
-      const [previous] = await db.select().from(products).where(eq(products.id, data.id))
+      const scope = and(eq(products.id, data.id), eq(products.siteId, admin.siteId))
+      const [previous] = await db.select().from(products).where(scope)
       if (!previous) throw new Error('Servicio no encontrado.')
-      const [row] = await db.update(products).set({ ...values, updatedAt: new Date() }).where(eq(products.id, data.id)).returning()
-      if (previous.imageKey && previous.imageKey !== data.imageKey) await productImages().delete(previous.imageKey)
+      const [row] = await db.update(products).set({ ...values, updatedAt: new Date() }).where(scope).returning()
+      if (previous.imageKey && previous.imageKey !== data.imageKey) await deleteProductImageIfUnused(previous.imageKey)
       await logAdminAction(db, admin, {
         action: 'servicio.editar',
         summary: `Editó el servicio "${row.name}"${previous.price !== row.price ? ` (precio de $${previous.price.toLocaleString('es-CO')} a $${row.price.toLocaleString('es-CO')})` : ''}`,
@@ -301,7 +308,7 @@ export const adminSaveProduct = createServerFn({ method: 'POST' })
       })
       return toProduct(row)
     }
-    const [row] = await db.insert(products).values(values).returning()
+    const [row] = await db.insert(products).values({ ...values, siteId: admin.siteId }).returning()
     await logAdminAction(db, admin, { action: 'servicio.crear', summary: `Creó el servicio "${row.name}" ($${row.price.toLocaleString('es-CO')})`, targetType: 'product', targetId: row.id })
     return toProduct(row)
   })
@@ -310,7 +317,7 @@ export const adminToggleProduct = createServerFn({ method: 'POST' })
   .inputValidator((data: { id: number; active: boolean }) => ({ id: positiveInt(data?.id, 'El servicio'), active: Boolean(data?.active) }))
   .handler(async ({ data }) => {
     const admin = await requireAdmin()
-    const [row] = await db.update(products).set({ active: data.active, updatedAt: new Date() }).where(eq(products.id, data.id)).returning()
+    const [row] = await db.update(products).set({ active: data.active, updatedAt: new Date() }).where(and(eq(products.id, data.id), eq(products.siteId, admin.siteId))).returning()
     if (!row) throw new Error('Servicio no encontrado.')
     if (!data.active) await notifyAdmin('servicio', `Servicio no disponible: ${row.name}`, `${admin.profile.email} ocultó el servicio del catálogo.`, 'servicios')
     await logAdminAction(db, admin, { action: data.active ? 'servicio.activar' : 'servicio.ocultar', summary: `${data.active ? 'Activó' : 'Ocultó'} el servicio "${row.name}"`, targetType: 'product', targetId: row.id })
@@ -321,8 +328,8 @@ export const adminDeleteProduct = createServerFn({ method: 'POST' })
   .inputValidator((data: { id: number }) => ({ id: positiveInt(data?.id, 'El servicio') }))
   .handler(async ({ data }) => {
     const admin = await requireAdmin()
-    const [row] = await db.delete(products).where(eq(products.id, data.id)).returning()
-    if (row?.imageKey) await productImages().delete(row.imageKey)
+    const [row] = await db.delete(products).where(and(eq(products.id, data.id), eq(products.siteId, admin.siteId))).returning()
+    if (row?.imageKey) await deleteProductImageIfUnused(row.imageKey)
     if (row) await logAdminAction(db, admin, { action: 'servicio.eliminar', summary: `Eliminó el servicio "${row.name}"`, targetType: 'product', targetId: row.id, details: { name: row.name, price: row.price } })
     return { ok: true }
   })

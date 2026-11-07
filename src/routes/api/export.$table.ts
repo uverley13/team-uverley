@@ -26,10 +26,10 @@ export const Route = createFileRoute('/api/export/$table')({
         const def = TABLES[params.table]
         if (!def) return new Response('Not found', { status: 404 })
         const search = (new URL(request.url).searchParams.get('q') ?? '').trim().slice(0, 100)
-        const rows = (await db.select().from(def.table).where(tableWhere(def, search)).orderBy(desc(def.order)).limit(50_000)) as Record<string, unknown>[]
+        const rows = (await db.select().from(def.table).where(tableWhere(def, search, admin.siteId)).orderBy(desc(def.order)).limit(50_000)) as Record<string, unknown>[]
         const columns = rows[0] ? Object.keys(rows[0]) : []
         const lines = [columns.join(';'), ...rows.map(r => columns.map(c => csvValue(r[c])).join(';'))]
-        await logAdminAction(db, admin, { action: 'datos.exportar', summary: `Exportó ${rows.length} registros de "${def.label}"${search ? ` (búsqueda: ${search})` : ''}`, targetType: 'table', targetId: params.table })
+        await logAdminAction(db, admin, { action: 'datos.exportar', summary: `Exportó ${rows.length} registros de "${def.label}" (${admin.store.name})${search ? ` (búsqueda: ${search})` : ''}`, targetType: 'table', targetId: params.table })
         const date = new Date().toISOString().slice(0, 10)
         // BOM + semicolons so Excel in Spanish opens it with accents and columns correctly.
         return new Response('﻿' + lines.join('\r\n'), {
